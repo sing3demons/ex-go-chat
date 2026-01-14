@@ -1,0 +1,50 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: oauth-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    # volumes:
+    #   - mongodb_data:/data/db
+    #   - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - chat-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./redis_data:/data
+    networks:
+      - chat-network
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - chat-network
+    environment:
+      - RI_REDIS_ALIAS=redis:6379
+      - RI_REDIS_HOST=redis
+      - RI_REDIS_PORT=6379
+    # volumes:
+    #   - redis-insight-data:/data
+networks:
+  chat-network:
+    driver: bridge
