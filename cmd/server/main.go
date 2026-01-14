@@ -8,6 +8,12 @@ import (
 	"syscall"
 
 	"realtime-chat-system/config"
+	"realtime-chat-system/internal/handler"
+	"realtime-chat-system/internal/middleware"
+	"realtime-chat-system/internal/repository"
+	"realtime-chat-system/internal/service"
+	"realtime-chat-system/internal/websocket"
+	"realtime-chat-system/pkg/auth"
 	"realtime-chat-system/pkg/database"
 	"realtime-chat-system/pkg/logger"
 
@@ -45,20 +51,80 @@ func main() {
 	}
 	log.Info("Database indexes created successfully")
 
-	// TODO: Initialize repositories, services, and handlers
+	// Initialize repositories
+	userRepo := repository.NewUserRepository(db.Database)
+	roomRepo := repository.NewRoomRepository(db.Database)
+	messageRepo := repository.NewMessageRepository(db.Database)
+	notificationRepo := repository.NewNotificationRepository(db.Database)
+	log.Info("Repositories initialized")
+
+	// Initialize JWT manager
+	jwtManager := auth.NewJWTManager(cfg.JWT.Secret, cfg.JWT.Expiration)
+	log.Info("JWT manager initialized")
+
+	// Initialize services
+	authService := service.NewAuthService(userRepo, jwtManager)
+	roomService := service.NewRoomService(roomRepo)
+	messageService := service.NewMessageService(messageRepo, roomRepo)
+	presenceService := service.NewPresenceService(log)
+	notificationService := service.NewNotificationService(notificationRepo)
+	log.Info("Services initialized")
+
+	// Initialize WebSocket hub and message handler
+	hub := websocket.NewHub(nil, presenceService, log) // We'll set the message handler after creating it
+	wsMessageHandler := websocket.NewWSMessageHandler(hub, messageService, roomService, presenceService, notificationService, log)
+	hub.SetMessageHandler(wsMessageHandler)
+	log.Info("WebSocket hub initialized")
+
+	// Start hub in background
+	go hub.Run()
+	log.Info("WebSocket hub started")
+
+	// Start presence heartbeat monitor
+	go presenceService.StartHeartbeatMonitor(context.Background())
+	log.Info("Presence heartbeat monitor started")
+
+	// Initialize handlers
+	authHandler := handler.NewAuthHandler(authService)
+	authMiddleware := middleware.NewAuthMiddleware(authService)
+	roomHandler := handler.NewRoomHandler(roomService, authMiddleware)
+	messageHandler := handler.NewMessageHandler(messageService, roomService, authMiddleware)
+	notificationHandler := handler.NewNotificationHandler(notificationService, authMiddleware)
+	wsHandler := websocket.NewHandler(hub, authService, roomService, presenceService, log)
+	log.Info("Handlers initialized")
+
+	// Setup HTTP routes
+	mux := http.NewServeMux()
+	
+	// Health check endpoint
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+	
+	// Register auth routes
+	authHandler.RegisterRoutes(mux)
+	
+	// Register room routes
+	roomHandler.RegisterRoutes(mux)
+	
+	// Register message routes
+	messageHandler.RegisterRoutes(mux)
+	
+	// Register notification routes
+	notificationHandler.RegisterRoutes(mux)
+	
+	// Register WebSocket route
+	mux.HandleFunc("/ws", wsHandler.ServeWS)
+	log.Info("Routes registered")
 
 	// Setup HTTP server
 	server := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
+		Handler:      mux,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
-
-	// Setup basic health check endpoint
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
 
 	// Start server in a goroutine
 	go func() {
