@@ -36,3 +36,4 @@ bin/
 dist/
 .kiro/*
 redis_data/
+.kiro/specs/realtime-chat-system/tasks.md
