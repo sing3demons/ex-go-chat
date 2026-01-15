@@ -60,6 +60,8 @@ export const ChatPage = () => {
   // Connect WebSocket on mount if not connected and load rooms
   useEffect(() => {
     const initializeChat = async () => {
+      if (token && !isInitializing) return; // Prevent re-initialization
+      
       if (token) {
         try {
           // Setup error callback
@@ -88,7 +90,7 @@ export const ChatPage = () => {
     };
 
     initializeChat();
-  }, [token, isConnected, connect]);
+  }, []); // Only run once on mount
 
   const handleLogout = () => {
     websocket.disconnect();

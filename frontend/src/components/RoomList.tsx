@@ -69,7 +69,7 @@ export const RoomList = () => {
 
   useEffect(() => {
     loadRooms();
-  }, [loadRooms]);
+  }, []); // Only load once on mount
 
   const handleSelectRoom = async (roomId: string) => {
     selectRoom(roomId);

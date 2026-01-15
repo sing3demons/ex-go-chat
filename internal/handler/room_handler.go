@@ -230,8 +230,8 @@ func (h *RoomHandler) RemoveMembers(w http.ResponseWriter, r *http.Request) {
 
 // RegisterRoutes registers room routes
 func (h *RoomHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/rooms/members", h.authMw.Authenticate(h.handleRoomMembers))
 	mux.HandleFunc("/api/rooms", h.authMw.Authenticate(h.handleRooms))
-	mux.HandleFunc("/api/rooms/", h.authMw.Authenticate(h.handleRoomMembers))
 }
 
 // handleRooms routes between GET (list rooms) and POST (create group)

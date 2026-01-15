@@ -118,10 +118,10 @@ func main() {
 	mux.HandleFunc("/ws", wsHandler.ServeWS)
 	log.Info("Routes registered")
 
-	// Setup HTTP server
+	// Setup HTTP server with CORS middleware
 	server := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
-		Handler:      mux,
+		Handler:      middleware.CORS(mux),
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
