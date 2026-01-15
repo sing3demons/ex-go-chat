@@ -109,9 +109,8 @@ class APIService {
 
   async createGroupRoom(name: string, members: string[]): Promise<Room> {
     const response = await this.client.post<APIResponse<Room>>('/api/rooms', {
-      type: 'group',
       name,
-      members,
+      memberIds: members,
     });
     return response.data.data!;
   }
@@ -138,7 +137,7 @@ class APIService {
     return retryWithExponentialBackoff(
       async () => {
         const response = await this.client.get<APIResponse<Message[]>>(
-          `/api/rooms/${roomId}/messages`,
+          `/api/messages/room/${roomId}`,
           { params: { limit, offset } }
         );
         return response.data.data || [];
@@ -189,6 +188,22 @@ class APIService {
 
   async markAllNotificationsAsRead(): Promise<void> {
     await this.client.post('/api/notifications/mark-all-read');
+  }
+
+  // User endpoints
+  async searchUsers(query: string): Promise<{ id: string; username: string }[]> {
+    const response = await this.client.get<APIResponse<{ id: string; username: string }[]>>(
+      '/api/users/search',
+      { params: { q: query } }
+    );
+    return response.data.data || [];
+  }
+
+  async createDirectChatByUsername(username: string): Promise<Room> {
+    const response = await this.client.post<APIResponse<Room>>('/api/users/chat', {
+      username,
+    });
+    return response.data.data!;
   }
 }
 

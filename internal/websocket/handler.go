@@ -82,9 +82,11 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// Mark user as online
 	h.presenceService.SetOnline(r.Context(), claims.UserID)
 
-	// Start read and write pumps
+	// Start write pump in goroutine
 	go wsConn.WritePump()
-	go wsConn.ReadPump(h.hub)
 
-	h.log.Infof("WebSocket connection established for user %s", claims.UserID)
+	// Start read pump (blocking - keeps connection alive)
+	wsConn.ReadPump(h.hub)
+
+	h.log.Infof("WebSocket connection closed for user %s", claims.UserID)
 }

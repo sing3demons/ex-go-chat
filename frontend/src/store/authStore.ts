@@ -4,6 +4,20 @@ import type { User } from '../types';
 import { api } from '../services/api';
 import { websocket } from '../services/websocket';
 
+// Decode JWT token to get user info
+function decodeToken(token: string): { userId: string; username: string } | null {
+  try {
+    const payload = token.split('.')[1];
+    const decoded = JSON.parse(atob(payload));
+    return {
+      userId: decoded.userId,
+      username: decoded.username,
+    };
+  } catch {
+    return null;
+  }
+}
+
 interface AuthState {
   user: User | null;
   token: string | null;
@@ -31,22 +45,45 @@ export const useAuthStore = create<AuthState>()(
       login: async (identifier: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
+          console.log('Login attempt:', identifier);
           const response = await api.login(identifier, password);
+          console.log('Login response:', response);
           localStorage.setItem('token', response.token);
-          localStorage.setItem('user', JSON.stringify(response.user));
           
-          // Connect WebSocket
-          await websocket.connect(response.token);
+          // Get user from response or decode from token
+          let user = response.user;
+          if (!user) {
+            const decoded = decodeToken(response.token);
+            console.log('Decoded token:', decoded);
+            if (decoded) {
+              user = {
+                id: decoded.userId,
+                username: decoded.username,
+                email: identifier.includes('@') ? identifier : '',
+                createdAt: new Date().toISOString(),
+              };
+            }
+          }
+          
+          console.log('Setting user:', user);
+          localStorage.setItem('user', JSON.stringify(user));
           
           set({
-            user: response.user,
+            user,
             token: response.token,
             isAuthenticated: true,
             isLoading: false,
           });
+          console.log('Auth state updated, isAuthenticated: true');
+          
+          // Connect WebSocket (don't block login if it fails)
+          websocket.connect(response.token).catch((err) => {
+            console.error('WebSocket connection failed:', err);
+          });
         } catch (error: any) {
+          console.error('Login error:', error);
           set({
-            error: error.response?.data?.error || 'Login failed',
+            error: error.response?.data?.error || error.message || 'Login failed',
             isLoading: false,
           });
           throw error;
@@ -60,14 +97,16 @@ export const useAuthStore = create<AuthState>()(
           localStorage.setItem('token', response.token);
           localStorage.setItem('user', JSON.stringify(response.user));
           
-          // Connect WebSocket
-          await websocket.connect(response.token);
-          
           set({
             user: response.user,
             token: response.token,
             isAuthenticated: true,
             isLoading: false,
+          });
+          
+          // Connect WebSocket (don't block registration if it fails)
+          websocket.connect(response.token).catch((err) => {
+            console.error('WebSocket connection failed:', err);
           });
         } catch (error: any) {
           set({

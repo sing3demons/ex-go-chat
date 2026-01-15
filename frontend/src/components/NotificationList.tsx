@@ -97,7 +97,7 @@ const NotificationItem = ({
 
 export const NotificationList = ({ isOpen, onClose }: NotificationListProps) => {
   const {
-    notifications,
+    notifications: rawNotifications,
     isLoading,
     error,
     fetchNotifications,
@@ -105,6 +105,9 @@ export const NotificationList = ({ isOpen, onClose }: NotificationListProps) => 
     markAllAsRead,
     loadMore,
   } = useNotifications();
+
+  // Ensure notifications is always an array
+  const notifications = Array.isArray(rawNotifications) ? rawNotifications : [];
 
   useEffect(() => {
     if (isOpen) {

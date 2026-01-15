@@ -1,13 +1,16 @@
 import { usePresenceStore } from '../store/presenceStore';
 
 export const usePresence = (userId?: string) => {
-  const { onlineUsers, isUserOnline, getLastSeen } = usePresenceStore();
+  const onlineUsers = usePresenceStore((state) => state.onlineUsers);
+  const lastSeenMap = usePresenceStore((state) => state.lastSeen);
+  const isUserOnline = usePresenceStore((state) => state.isUserOnline);
+  const getLastSeen = usePresenceStore((state) => state.getLastSeen);
 
   // Check if specific user is online
-  const isOnline = userId ? isUserOnline(userId) : false;
+  const isOnline = userId ? !!onlineUsers[userId] : false;
   
   // Get last seen for specific user
-  const userLastSeen = userId ? getLastSeen(userId) : undefined;
+  const userLastSeen = userId ? lastSeenMap[userId] : undefined;
 
   // Format last seen timestamp
   const formatLastSeen = (timestamp?: string): string => {
@@ -36,11 +39,11 @@ export const usePresence = (userId?: string) => {
   };
 
   // Get all online user IDs as array
-  const onlineUserIds = Array.from(onlineUsers);
+  const onlineUserIds = Object.keys(onlineUsers);
 
   // Check if multiple users are online
   const areUsersOnline = (userIds: string[]): boolean => {
-    return userIds.some(id => isUserOnline(id));
+    return userIds.some(id => !!onlineUsers[id]);
   };
 
   return {
@@ -49,7 +52,7 @@ export const usePresence = (userId?: string) => {
     statusText: getStatusText(),
     formattedLastSeen: formatLastSeen(userLastSeen),
     onlineUserIds,
-    onlineCount: onlineUsers.size,
+    onlineCount: onlineUserIds.length,
     areUsersOnline,
     isUserOnline,
     getLastSeen,

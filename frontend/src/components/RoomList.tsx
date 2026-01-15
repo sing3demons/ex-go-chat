@@ -1,27 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, memo } from 'react';
 import { useRoomStore } from '../store/roomStore';
 import { useChatStore } from '../store/chatStore';
-import { usePresence } from '../hooks/usePresence';
 import { LoadingSpinner } from './LoadingSpinner';
-import type { Room } from '../types';
+import type { Room, Message } from '../types';
 
 interface RoomItemProps {
   room: Room;
   isSelected: boolean;
   onSelect: () => void;
+  lastMessage?: Message;
 }
 
-const RoomItem = ({ room, isSelected, onSelect }: RoomItemProps) => {
-  const messages = useChatStore((state) => state.messages[room.id] || []);
-  const lastMessage = messages[messages.length - 1];
-  const { areUsersOnline } = usePresence();
-  
-  // For direct rooms, check if the other user is online
-  const isOnline = room.type === 'direct' && areUsersOnline(room.members);
-  
-  // Calculate unread count (simplified - would need proper tracking)
-  const unreadCount = 0; // TODO: Implement proper unread tracking
-
+// Pure component - no store subscriptions, only props
+const RoomItem = memo(({ room, isSelected, onSelect, lastMessage }: RoomItemProps) => {
   return (
     <button
       onClick={onSelect}
@@ -34,15 +25,7 @@ const RoomItem = ({ room, isSelected, onSelect }: RoomItemProps) => {
           <div className="font-semibold truncate text-sm sm:text-base">
             {room.name || `Room ${room.id.slice(0, 8)}`}
           </div>
-          {isOnline && (
-            <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0" title="Online" />
-          )}
         </div>
-        {unreadCount > 0 && (
-          <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full flex-shrink-0 ml-2">
-            {unreadCount}
-          </span>
-        )}
       </div>
       
       {lastMessage && (
@@ -60,12 +43,13 @@ const RoomItem = ({ room, isSelected, onSelect }: RoomItemProps) => {
       </div>
     </button>
   );
-};
+});
 
 export const RoomList = () => {
   const { rooms, loadRooms, selectRoom, selectedRoomId, isLoading } = useRoomStore();
   const setCurrentRoom = useChatStore((state) => state.setCurrentRoom);
   const loadMessages = useChatStore((state) => state.loadMessages);
+  const messages = useChatStore((state) => state.messages);
 
   useEffect(() => {
     loadRooms();
@@ -76,6 +60,12 @@ export const RoomList = () => {
     setCurrentRoom(roomId);
     // Load messages for the selected room
     await loadMessages(roomId);
+  };
+
+  // Get last message for a room
+  const getLastMessage = (roomId: string) => {
+    const roomMessages = messages[roomId];
+    return roomMessages ? roomMessages[roomMessages.length - 1] : undefined;
   };
 
   return (
@@ -107,6 +97,7 @@ export const RoomList = () => {
               room={room}
               isSelected={selectedRoomId === room.id}
               onSelect={() => handleSelectRoom(room.id)}
+              lastMessage={getLastMessage(room.id)}
             />
           ))
         )}

@@ -15,7 +15,8 @@ export const useNotifications = () => {
     
     try {
       const data = await api.getNotifications(limit, offset);
-      setNotifications(prev => offset === 0 ? data : [...prev, ...data]);
+      const notificationArray = Array.isArray(data) ? data : [];
+      setNotifications(prev => offset === 0 ? notificationArray : [...prev, ...notificationArray]);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch notifications');
     } finally {
@@ -30,8 +31,9 @@ export const useNotifications = () => {
     
     try {
       const data = await api.getPendingNotifications();
-      setNotifications(data);
-      setUnreadCount(data.length);
+      const notificationArray = Array.isArray(data) ? data : [];
+      setNotifications(notificationArray);
+      setUnreadCount(notificationArray.length);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch pending notifications');
     } finally {

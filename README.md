@@ -567,3 +567,7 @@ Works seamlessly on desktop, tablet, and mobile devices.
 **Built with ❤️ using Golang and React**
 
 **Last Updated**: January 14, 2026
+
+curl -s -X POST http://localhost:8080/api/auth/register -H "Content-Type: application/json" -d '{"username":"chattest1","email":"chattest1@test.com","password":"Test1234567!"}'
+
+curl -s -X POST http://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"identifier":"chattest1", "password":"Test1234567!"}'

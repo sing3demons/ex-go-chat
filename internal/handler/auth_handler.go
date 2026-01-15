@@ -36,7 +36,6 @@ type LoginRequest struct {
 // AuthResponse represents an authentication response
 type AuthResponse struct {
 	Token string      `json:"token"`
-	User  interface{} `json:"user"`
 }
 
 // UserResponse represents a user in API responses

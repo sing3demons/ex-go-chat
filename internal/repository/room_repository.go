@@ -57,23 +57,28 @@ func (r *roomRepository) Create(ctx context.Context, room *models.Room) error {
 func (r *roomRepository) FindByID(ctx context.Context, id string) (*models.Room, error) {
 	var room models.Room
 
-	// Try to parse as ObjectID first, if fails use as string
-	var filter bson.M
-	if oid, err := primitive.ObjectIDFromHex(id); err == nil {
-		filter = bson.M{"_id": oid}
-	} else {
-		filter = bson.M{"_id": id}
-	}
-
+	// First try to find by string ID
+	filter := bson.M{"_id": id}
 	err := r.collection.FindOne(ctx, filter).Decode(&room)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return nil, errors.ErrRoomNotFound()
+	if err == nil {
+		return &room, nil
+	}
+	
+	// If not found and ID is valid ObjectID hex, try as ObjectID
+	if err == mongo.ErrNoDocuments {
+		if oid, parseErr := primitive.ObjectIDFromHex(id); parseErr == nil {
+			filter = bson.M{"_id": oid}
+			err = r.collection.FindOne(ctx, filter).Decode(&room)
+			if err == nil {
+				return &room, nil
+			}
 		}
-		return nil, errors.ErrDatabase(err)
 	}
 
-	return &room, nil
+	if err == mongo.ErrNoDocuments {
+		return nil, errors.ErrRoomNotFound()
+	}
+	return nil, errors.ErrDatabase(err)
 }
 
 // FindByMembers finds a direct room by its members
@@ -126,14 +131,8 @@ func (r *roomRepository) FindUserRooms(ctx context.Context, userID string) ([]*m
 
 // UpdateMembers updates the members list of a room
 func (r *roomRepository) UpdateMembers(ctx context.Context, roomID string, members []string) error {
-	// Try to parse as ObjectID first, if fails use as string
-	var filter bson.M
-	if oid, err := primitive.ObjectIDFromHex(roomID); err == nil {
-		filter = bson.M{"_id": oid}
-	} else {
-		filter = bson.M{"_id": roomID}
-	}
-
+	// First try string ID
+	filter := bson.M{"_id": roomID}
 	update := bson.M{
 		"$set": bson.M{
 			"members": members,
@@ -143,6 +142,17 @@ func (r *roomRepository) UpdateMembers(ctx context.Context, roomID string, membe
 	result, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return errors.ErrDatabase(err)
+	}
+
+	// If not matched and ID is valid ObjectID hex, try as ObjectID
+	if result.MatchedCount == 0 {
+		if oid, parseErr := primitive.ObjectIDFromHex(roomID); parseErr == nil {
+			filter = bson.M{"_id": oid}
+			result, err = r.collection.UpdateOne(ctx, filter, update)
+			if err != nil {
+				return errors.ErrDatabase(err)
+			}
+		}
 	}
 
 	if result.MatchedCount == 0 {

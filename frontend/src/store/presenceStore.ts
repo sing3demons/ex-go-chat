@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 
 interface PresenceState {
-  onlineUsers: Set<string>;
+  onlineUsers: Record<string, boolean>; // userId -> true if online
   lastSeen: Record<string, string>; // userId -> timestamp
-  typingUsers: Record<string, Set<string>>; // roomId -> Set of userIds
+  typingUsers: Record<string, Record<string, boolean>>; // roomId -> userId -> true
   
   setUserOnline: (userId: string) => void;
   setUserOffline: (userId: string, lastSeen: string) => void;
@@ -14,20 +14,20 @@ interface PresenceState {
 }
 
 export const usePresenceStore = create<PresenceState>((set, get) => ({
-  onlineUsers: new Set(),
+  onlineUsers: {},
   lastSeen: {},
   typingUsers: {},
 
   setUserOnline: (userId: string) => {
     set((state) => ({
-      onlineUsers: new Set(state.onlineUsers).add(userId),
+      onlineUsers: { ...state.onlineUsers, [userId]: true },
     }));
   },
 
   setUserOffline: (userId: string, lastSeen: string) => {
     set((state) => {
-      const newOnlineUsers = new Set(state.onlineUsers);
-      newOnlineUsers.delete(userId);
+      const newOnlineUsers = { ...state.onlineUsers };
+      delete newOnlineUsers[userId];
       return {
         onlineUsers: newOnlineUsers,
         lastSeen: { ...state.lastSeen, [userId]: lastSeen },
@@ -36,7 +36,7 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
   },
 
   isUserOnline: (userId: string) => {
-    return get().onlineUsers.has(userId);
+    return !!get().onlineUsers[userId];
   },
 
   getLastSeen: (userId: string) => {
@@ -47,13 +47,13 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
     set((state) => {
       const newTypingUsers = { ...state.typingUsers };
       if (!newTypingUsers[roomId]) {
-        newTypingUsers[roomId] = new Set();
+        newTypingUsers[roomId] = {};
       }
-      const roomTyping = new Set(newTypingUsers[roomId]);
+      const roomTyping = { ...newTypingUsers[roomId] };
       if (isTyping) {
-        roomTyping.add(userId);
+        roomTyping[userId] = true;
       } else {
-        roomTyping.delete(userId);
+        delete roomTyping[userId];
       }
       newTypingUsers[roomId] = roomTyping;
       return { typingUsers: newTypingUsers };
@@ -61,7 +61,7 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
   },
 
   getTypingUsers: (roomId: string) => {
-    const typingSet = get().typingUsers[roomId];
-    return typingSet ? Array.from(typingSet) : [];
+    const typingObj = get().typingUsers[roomId];
+    return typingObj ? Object.keys(typingObj) : [];
   },
 }));

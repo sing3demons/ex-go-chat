@@ -57,6 +57,8 @@ func (h *WSMessageHandler) HandleMessage(conn *Connection, msg *WSMessage) {
 		h.handleDeleteMessage(ctx, conn, msg)
 	case MessageTypeHeartbeat:
 		h.handleHeartbeat(ctx, conn)
+	case MessageTypeJoinRoom:
+		h.handleJoinRoom(ctx, conn, msg)
 	default:
 		h.log.Warnf("Unknown message type: %s", msg.Type)
 		h.sendError(conn, "UNKNOWN_TYPE", "Unknown message type")
@@ -291,6 +293,31 @@ func (h *WSMessageHandler) handleDeleteMessage(ctx context.Context, conn *Connec
 // handleHeartbeat handles heartbeat messages
 func (h *WSMessageHandler) handleHeartbeat(ctx context.Context, conn *Connection) {
 	h.presenceService.UpdateHeartbeat(ctx, conn.UserID)
+}
+
+// handleJoinRoom handles room subscription requests
+func (h *WSMessageHandler) handleJoinRoom(ctx context.Context, conn *Connection, msg *WSMessage) {
+	if msg.RoomID == "" {
+		h.sendError(conn, "INVALID_ROOM", "Room ID is required")
+		return
+	}
+
+	// Verify room membership
+	isMember, err := h.roomService.IsMember(ctx, msg.RoomID, conn.UserID)
+	if err != nil {
+		h.log.Errorf("Failed to check room membership: %v", err)
+		h.sendError(conn, "INTERNAL_ERROR", "Failed to verify room membership")
+		return
+	}
+	if !isMember {
+		h.log.Warnf("User %s attempted to join room %s without membership", conn.UserID, msg.RoomID)
+		h.sendError(conn, "UNAUTHORIZED", "You are not a member of this room")
+		return
+	}
+
+	// Subscribe to room
+	conn.SubscribeToRoom(msg.RoomID)
+	h.log.Infof("User %s joined room %s", conn.UserID, msg.RoomID)
 }
 
 // sendError sends an error message to the connection

@@ -17,6 +17,7 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*models.User, error)
 	FindByUsername(ctx context.Context, username string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	SearchByUsername(ctx context.Context, query string, limit int) ([]*models.User, error)
 }
 
 // userRepository implements UserRepository
@@ -126,4 +127,38 @@ func containsField(errMsg, field string) bool {
 		}
 	}
 	return false
+}
+
+// SearchByUsername searches users by username prefix
+func (r *userRepository) SearchByUsername(ctx context.Context, query string, limit int) ([]*models.User, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// Use regex for prefix search (case-insensitive)
+	filter := bson.M{
+		"username": bson.M{
+			"$regex":   "^" + query,
+			"$options": "i",
+		},
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, errors.ErrDatabase(err)
+	}
+	defer cursor.Close(ctx)
+
+	var users []*models.User
+	count := 0
+	for cursor.Next(ctx) && count < limit {
+		var user models.User
+		if err := cursor.Decode(&user); err != nil {
+			continue
+		}
+		users = append(users, &user)
+		count++
+	}
+
+	return users, nil
 }

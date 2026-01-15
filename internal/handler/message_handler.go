@@ -150,29 +150,19 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 
 // RegisterRoutes registers message routes
 func (h *MessageHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/rooms/", h.authMw.Authenticate(h.handleRoomMessages))
+	// Use a pattern that matches /api/rooms/{id}/messages
+	mux.HandleFunc("/api/messages/room/", h.authMw.Authenticate(h.handleRoomMessages))
 }
 
 // handleRoomMessages routes message-related endpoints
 func (h *MessageHandler) handleRoomMessages(w http.ResponseWriter, r *http.Request) {
-	// Check if path ends with /messages
-	if strings.HasSuffix(r.URL.Path, "/messages") {
-		h.GetMessages(w, r)
-		return
-	}
-
-	// If not /messages endpoint, let room handler deal with it
-	// This is handled by room handler's routes
-	response.NotFound(w, "Endpoint not found")
+	h.GetMessages(w, r)
 }
 
-// extractRoomIDFromPath extracts room ID from URL path like /api/rooms/:id/messages
+// extractRoomIDFromPath extracts room ID from URL path like /api/messages/room/:id
 func extractRoomIDFromPath(path string) string {
-	// Remove prefix /api/rooms/
-	path = strings.TrimPrefix(path, "/api/rooms/")
-	
-	// Remove suffix /messages
-	path = strings.TrimSuffix(path, "/messages")
+	// Remove prefix /api/messages/room/
+	path = strings.TrimPrefix(path, "/api/messages/room/")
 	
 	return path
 }

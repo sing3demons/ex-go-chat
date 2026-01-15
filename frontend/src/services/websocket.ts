@@ -20,6 +20,13 @@ class WebSocketService {
 
   connect(token: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      // If already connected or connecting, don't create a new connection
+      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+        console.log('WebSocket already connected or connecting');
+        resolve();
+        return;
+      }
+
       this.token = token;
       const url = `${WS_URL}/ws?token=${token}`;
 
@@ -156,13 +163,18 @@ class WebSocketService {
       return;
     }
 
+    // Don't reconnect if we're already trying or if we don't have a token
+    if (!this.token || this.ws?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
     console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     setTimeout(() => {
-      if (this.token) {
+      if (this.token && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
         this.connect(this.token).catch((error) => {
           console.error('Reconnect failed:', error);
         });

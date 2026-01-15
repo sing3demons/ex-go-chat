@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../services/api';
 import { useRoomStore } from '../store/roomStore';
+import { websocket } from '../services/websocket';
 
 interface CreateRoomModalProps {
   isOpen: boolean;
@@ -34,7 +35,14 @@ export const CreateRoomModal = ({ isOpen, onClose }: CreateRoomModalProps) => {
         .map(id => id.trim())
         .filter(id => id.length > 0);
 
-      await api.createGroupRoom(roomName.trim(), members);
+      const room = await api.createGroupRoom(roomName.trim(), members);
+      
+      // Subscribe to the new room via WebSocket
+      websocket.send({
+        type: 'join_room',
+        roomId: room.id,
+        payload: {}
+      });
       
       // Reload rooms
       await loadRooms();

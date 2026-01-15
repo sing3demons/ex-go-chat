@@ -138,9 +138,17 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if _, exists := h.connections[conn.UserID]; exists {
+	if existingConn, exists := h.connections[conn.UserID]; exists && existingConn == conn {
 		delete(h.connections, conn.UserID)
-		close(conn.Send)
+		
+		// Safely close the channel
+		select {
+		case <-conn.Send:
+			// Channel already closed
+		default:
+			close(conn.Send)
+		}
+		
 		h.log.Infof("User %s disconnected (total: %d)", conn.UserID, len(h.connections))
 
 		// Mark user as offline

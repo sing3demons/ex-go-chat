@@ -26,25 +26,17 @@ export const useWebSocket = () => {
 
   // Subscribe to room events when rooms change
   const subscribeToRooms = useCallback(() => {
-    if (rooms.length > 0) {
-      console.log(`Subscribing to ${rooms.length} rooms...`);
-      rooms.forEach(room => {
-        websocket.send({
-          type: 'join_room',
-          roomId: room.id,
-          payload: {}
-        });
-      });
-      console.log('Room subscriptions sent');
+    // The backend already subscribes users to their rooms on connection
+    // This is only needed for newly created rooms
+    if (rooms.length > 0 && websocket.isConnected()) {
+      console.log(`Rooms available: ${rooms.length}`);
     }
   }, [rooms]);
 
   useEffect(() => {
-    // Subscribe to rooms when WebSocket is connected and rooms are loaded
-    if (websocket.isConnected() && rooms.length > 0) {
-      subscribeToRooms();
-    }
-  }, [subscribeToRooms, rooms]);
+    // No need to subscribe - backend handles this on connection
+    subscribeToRooms();
+  }, [subscribeToRooms]);
 
   useEffect(() => {
     // Handle incoming messages

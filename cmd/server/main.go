@@ -90,6 +90,7 @@ func main() {
 	roomHandler := handler.NewRoomHandler(roomService, authMiddleware)
 	messageHandler := handler.NewMessageHandler(messageService, roomService, authMiddleware)
 	notificationHandler := handler.NewNotificationHandler(notificationService, authMiddleware)
+	userHandler := handler.NewUserHandler(userRepo, roomService, authMiddleware)
 	wsHandler := websocket.NewHandler(hub, authService, roomService, presenceService, log)
 	log.Info("Handlers initialized")
 
@@ -110,6 +111,9 @@ func main() {
 	
 	// Register message routes
 	messageHandler.RegisterRoutes(mux)
+	
+	// Register user routes
+	userHandler.RegisterRoutes(mux)
 	
 	// Register notification routes
 	notificationHandler.RegisterRoutes(mux)

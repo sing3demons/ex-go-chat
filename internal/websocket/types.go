@@ -14,6 +14,7 @@ const (
 	MessageTypeEdit      MessageType = "edit"
 	MessageTypeDelete    MessageType = "delete"
 	MessageTypeHeartbeat MessageType = "heartbeat"
+	MessageTypeJoinRoom  MessageType = "join_room"
 	MessageTypeError     MessageType = "error"
 )
 

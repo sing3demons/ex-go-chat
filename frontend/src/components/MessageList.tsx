@@ -1,18 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { MessageItem } from './MessageItem';
 import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
+
+// Empty array constant to avoid creating new references
+const EMPTY_MESSAGES: never[] = [];
 
 interface MessageListProps {
   roomId: string;
 }
 
 export const MessageList = ({ roomId }: MessageListProps) => {
-  const messages = useChatStore((state) => state.messages[roomId] || []);
+  const allMessages = useChatStore((state) => state.messages);
   const loadMessages = useChatStore((state) => state.loadMessages);
   const markAsRead = useChatStore((state) => state.markAsRead);
   const isLoading = useChatStore((state) => state.isLoading);
   const user = useAuthStore((state) => state.user);
+  
+  // Memoize messages for this room to avoid creating new array references
+  const messages = useMemo(() => allMessages[roomId] || EMPTY_MESSAGES, [allMessages, roomId]);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);

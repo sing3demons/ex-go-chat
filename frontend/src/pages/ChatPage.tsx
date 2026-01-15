@@ -11,6 +11,7 @@ import {
   PageLoader,
   ErrorMessage
 } from '../components';
+import { StartChatModal } from '../components/StartChatModal';
 import { useAuthStore } from '../store/authStore';
 import { useRoomStore } from '../store/roomStore';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -23,6 +24,7 @@ export const ChatPage = () => {
   const { isConnected, connect } = useWebSocket();
   
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
+  const [isStartChatModalOpen, setIsStartChatModalOpen] = useState(false);
   const [isRoomSettingsOpen, setIsRoomSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -59,37 +61,48 @@ export const ChatPage = () => {
 
   // Connect WebSocket on mount if not connected and load rooms
   useEffect(() => {
-    const initializeChat = async () => {
-      if (token && !isInitializing) return; // Prevent re-initialization
-      
-      if (token) {
-        try {
-          // Setup error callback
-          websocket.setConnectionErrorCallback((error) => {
-            setConnectionError(error);
-            // Auto-dismiss after 5 seconds
-            setTimeout(() => setConnectionError(null), 5000);
-          });
+    let mounted = true;
 
-          // Connect WebSocket if not already connected
-          if (!isConnected) {
-            await connect(token);
-            console.log('WebSocket connected successfully');
+    const initializeChat = async () => {
+      if (!token || !mounted) return;
+      
+      try {
+        // Setup error callback
+        websocket.setConnectionErrorCallback((error) => {
+          if (mounted) {
+            setConnectionError(error);
+            setTimeout(() => {
+              if (mounted) setConnectionError(null);
+            }, 5000);
           }
-          
-          // Load rooms after ensuring WebSocket connection
-          await useRoomStore.getState().loadRooms();
-          console.log('Rooms loaded successfully');
-        } catch (error: any) {
-          console.error('Failed to initialize chat:', error);
+        });
+
+        // Connect WebSocket if not already connected
+        if (!isConnected) {
+          await connect(token);
+          console.log('WebSocket connected successfully');
+        }
+        
+        // Load rooms after ensuring WebSocket connection
+        await useRoomStore.getState().loadRooms();
+        console.log('Rooms loaded successfully');
+      } catch (error: any) {
+        console.error('Failed to initialize chat:', error);
+        if (mounted) {
           setConnectionError(error.message || 'Failed to initialize chat');
-        } finally {
+        }
+      } finally {
+        if (mounted) {
           setIsInitializing(false);
         }
       }
     };
 
     initializeChat();
+
+    return () => {
+      mounted = false;
+    };
   }, []); // Only run once on mount
 
   const handleLogout = () => {
@@ -182,6 +195,17 @@ export const ChatPage = () => {
               </span>
             </div>
 
+            {/* Start Chat Button */}
+            <button
+              onClick={() => setIsStartChatModalOpen(true)}
+              className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-lg transition-all duration-200 ease-in-out touch-manipulation transform hover:scale-110"
+              title="เริ่มแชทใหม่"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </button>
+
             {/* Create Room Button */}
             <button
               onClick={() => setIsCreateRoomModalOpen(true)}
@@ -273,6 +297,11 @@ export const ChatPage = () => {
       </div>
 
       {/* Modals */}
+      <StartChatModal
+        isOpen={isStartChatModalOpen}
+        onClose={() => setIsStartChatModalOpen(false)}
+      />
+
       <CreateRoomModal
         isOpen={isCreateRoomModalOpen}
         onClose={() => setIsCreateRoomModalOpen(false)}
