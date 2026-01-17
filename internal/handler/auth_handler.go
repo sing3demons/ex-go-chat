@@ -35,7 +35,7 @@ type LoginRequest struct {
 
 // AuthResponse represents an authentication response
 type AuthResponse struct {
-	Token string      `json:"token"`
+	Token string `json:"token"`
 }
 
 // UserResponse represents a user in API responses
@@ -62,13 +62,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register user
-	user, err := h.authService.Register(r.Context(), req.Username, req.Email, req.Password)
+	user, _, err := h.authService.Register(r.Context(), req.Username, req.Email, req.Password)
 	if err != nil {
 		response.Error(w, err)
 		return
 	}
 
-	// Return user data (without password hash)
+	// Return user data and token
 	userResp := UserResponse{
 		ID:        user.ID,
 		Username:  user.Username,
@@ -101,7 +101,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return token
+	// Return token only
 	authResp := AuthResponse{
 		Token: token,
 	}

@@ -1,27 +1,47 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { websocket } from '../services/websocket';
 
 export const LoginPage = () => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [wsStatus, setWsStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const { login, isLoading, error, isAuthenticated } = useAuthStore();
   const navigate = useNavigate();
 
   // Redirect if already authenticated
   useEffect(() => {
+    console.log('LoginPage useEffect - isAuthenticated:', isAuthenticated);
     if (isAuthenticated) {
+      console.log('Redirecting to /chat...');
       navigate('/chat', { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Login form submitted');
+    
     try {
+      setWsStatus('connecting');
       await login(identifier, password);
-      // Navigation will happen via useEffect when isAuthenticated changes
+      console.log('Login successful, checking WebSocket status...');
+      
+      // Wait a bit for WebSocket to connect
+      setTimeout(() => {
+        if (websocket.isConnected()) {
+          setWsStatus('connected');
+          console.log('WebSocket connected, ready to redirect');
+        } else {
+          setWsStatus('disconnected');
+          console.log('WebSocket not connected, but login successful');
+        }
+      }, 1000);
+      
     } catch (err) {
-      // Error is handled by store
+      console.error('Login failed:', err);
+      setWsStatus('disconnected');
     }
   };
 
@@ -33,6 +53,18 @@ export const LoginPage = () => {
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
             {error}
+          </div>
+        )}
+
+        {wsStatus === 'connecting' && (
+          <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded mb-4">
+            Connecting to chat server...
+          </div>
+        )}
+
+        {wsStatus === 'connected' && (
+          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+            Connected! Redirecting to chat...
           </div>
         )}
 
@@ -68,7 +100,7 @@ export const LoginPage = () => {
             disabled={isLoading}
             className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Logging in...' : 'Login'}
+            {isLoading ? 'Logging in...' : wsStatus === 'connecting' ? 'Connecting...' : 'Login'}
           </button>
         </form>
 

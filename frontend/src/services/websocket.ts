@@ -8,11 +8,13 @@ class WebSocketService {
   private ws: WebSocket | null = null;
   private token: string | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = 3; // ลดจาก 5 เป็น 3
+  private reconnectDelay = 2000; // เพิ่มจาก 1000 เป็น 2000
   private handlers: Map<WSMessageType, MessageHandler[]> = new Map();
   private heartbeatInterval: number | null = null;
   private connectionErrorCallback: ((error: string) => void) | null = null;
+  private isReconnecting = false; // เพิ่ม flag เพื่อป้องกัน multiple reconnection
+  private shouldReconnect = true; // เพิ่ม flag เพื่อควบคุม reconnection
 
   setConnectionErrorCallback(callback: (error: string) => void) {
     this.connectionErrorCallback = callback;
@@ -27,7 +29,15 @@ class WebSocketService {
         return;
       }
 
+      // If already reconnecting, don't start another connection
+      if (this.isReconnecting) {
+        console.log('WebSocket reconnection already in progress');
+        resolve();
+        return;
+      }
+
       this.token = token;
+      this.shouldReconnect = true; // Reset reconnection flag
       const url = `${WS_URL}/ws?token=${token}`;
       console.log('🔌 Connecting to WebSocket:', url);
 
@@ -37,6 +47,7 @@ class WebSocketService {
         this.ws.onopen = () => {
           console.log('✅ WebSocket connected successfully');
           this.reconnectAttempts = 0;
+          this.isReconnecting = false;
           this.startHeartbeat();
           resolve();
         };
@@ -61,6 +72,7 @@ class WebSocketService {
 
         this.ws.onerror = (error) => {
           console.error('WebSocket error:', error);
+          this.isReconnecting = false;
           const errorMessage = 'WebSocket connection error. Please check your connection.';
           if (this.connectionErrorCallback) {
             this.connectionErrorCallback(errorMessage);
@@ -71,17 +83,17 @@ class WebSocketService {
         this.ws.onclose = (event) => {
           console.log('WebSocket disconnected', event.code, event.reason);
           this.stopHeartbeat();
+          this.isReconnecting = false;
           
           // Handle different close codes
           if (event.code === 1000) {
-            // Normal closure
+            // Normal closure - don't reconnect
             console.log('WebSocket closed normally');
-          } else if (event.code === 1006) {
-            // Abnormal closure - try to reconnect
-            console.log('WebSocket closed abnormally, attempting reconnect...');
-            this.attemptReconnect();
+            this.shouldReconnect = false;
           } else if (event.code === 4001) {
-            // Custom: Authentication failed
+            // Custom: Authentication failed - don't reconnect
+            console.log('WebSocket authentication failed');
+            this.shouldReconnect = false;
             const errorMessage = 'Authentication failed. Please login again.';
             if (this.connectionErrorCallback) {
               this.connectionErrorCallback(errorMessage);
@@ -89,21 +101,26 @@ class WebSocketService {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = '/login';
-          } else {
-            // Other errors - try to reconnect
+          } else if (this.shouldReconnect && !this.isReconnecting) {
+            // Other errors - try to reconnect only if we should
+            console.log('WebSocket closed abnormally, attempting reconnect...');
             this.attemptReconnect();
           }
         };
       } catch (error) {
+        this.isReconnecting = false;
         reject(error);
       }
     });
   }
 
   disconnect(): void {
+    console.log('🔌 Disconnecting WebSocket...');
+    this.shouldReconnect = false; // ป้องกัน reconnection
+    this.isReconnecting = false;
     this.stopHeartbeat();
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'User disconnected'); // Normal closure
       this.ws = null;
     }
   }
@@ -175,29 +192,41 @@ class WebSocketService {
   }
 
   private attemptReconnect(): void {
+    // Don't reconnect if we shouldn't or if already reconnecting
+    if (!this.shouldReconnect || this.isReconnecting) {
+      console.log('Skipping reconnect - shouldReconnect:', this.shouldReconnect, 'isReconnecting:', this.isReconnecting);
+      return;
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnect attempts reached');
+      this.shouldReconnect = false;
       if (this.connectionErrorCallback) {
         this.connectionErrorCallback('Connection lost. Please refresh the page.');
       }
       return;
     }
 
-    // Don't reconnect if we're already trying or if we don't have a token
-    if (!this.token || this.ws?.readyState === WebSocket.CONNECTING) {
+    // Don't reconnect if we don't have a token
+    if (!this.token) {
+      console.log('No token available for reconnection');
       return;
     }
 
+    this.isReconnecting = true;
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
     console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     setTimeout(() => {
-      if (this.token && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+      if (this.shouldReconnect && this.token && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
         this.connect(this.token).catch((error) => {
           console.error('Reconnect failed:', error);
+          this.isReconnecting = false;
         });
+      } else {
+        this.isReconnecting = false;
       }
     }, delay);
   }

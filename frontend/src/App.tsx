@@ -18,19 +18,33 @@ function App() {
 
   // Reconnect WebSocket on app load if user is authenticated
   useEffect(() => {
+    let mounted = true;
+    
     const reconnectWebSocket = async () => {
-      if (isAuthenticated && token && !websocket.isConnected()) {
+      // Only reconnect if user is authenticated, has token, and WebSocket is not connected
+      if (isAuthenticated && token && !websocket.isConnected() && mounted) {
         try {
-          console.log('Reconnecting WebSocket on app load...');
+          console.log('App: Reconnecting WebSocket on app load...');
           await websocket.connect(token);
-          console.log('WebSocket reconnected successfully');
+          console.log('App: WebSocket reconnected successfully');
         } catch (error) {
-          console.error('Failed to reconnect WebSocket:', error);
+          console.error('App: Failed to reconnect WebSocket:', error);
+          // Don't show error to user on app load - they can still use the app
         }
       }
     };
 
-    reconnectWebSocket();
+    // Add a small delay to ensure auth state is properly loaded
+    const timer = setTimeout(() => {
+      if (mounted) {
+        reconnectWebSocket();
+      }
+    }, 500);
+    
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
   }, [isAuthenticated, token]);
 
   return (

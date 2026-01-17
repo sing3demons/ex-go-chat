@@ -14,7 +14,7 @@ import (
 
 // AuthService defines the interface for authentication operations
 type AuthService interface {
-	Register(ctx context.Context, username, email, password string) (*models.User, error)
+	Register(ctx context.Context, username, email, password string) (*models.User, string, error)
 	Login(ctx context.Context, identifier, password string) (string, error)
 	ValidateToken(ctx context.Context, token string) (*auth.Claims, error)
 }
@@ -34,30 +34,30 @@ func NewAuthService(userRepo repository.UserRepository, jwtManager *auth.JWTMana
 }
 
 // Register registers a new user
-func (s *authService) Register(ctx context.Context, username, email, password string) (*models.User, error) {
+func (s *authService) Register(ctx context.Context, username, email, password string) (*models.User, string, error) {
 	// Trim whitespace
 	username = strings.TrimSpace(username)
 	email = strings.TrimSpace(email)
 
 	// Validate username
 	if err := validator.ValidateUsername(username); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Validate email
 	if err := validator.ValidateEmail(email); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Validate password
 	if err := validator.ValidatePassword(password); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Hash password
 	hashedPassword, err := auth.HashPassword(password)
 	if err != nil {
-		return nil, errors.ErrInternal("Failed to hash password")
+		return nil, "", errors.ErrInternal("Failed to hash password")
 	}
 
 	// Create user
@@ -72,10 +72,16 @@ func (s *authService) Register(ctx context.Context, username, email, password st
 
 	// Save to database
 	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return user, nil
+	// Generate JWT token
+	token, err := s.jwtManager.GenerateToken(user.ID, user.Username)
+	if err != nil {
+		return nil, "", errors.ErrInternal("Failed to generate token")
+	}
+
+	return user, token, nil
 }
 
 // Login authenticates a user and returns a JWT token

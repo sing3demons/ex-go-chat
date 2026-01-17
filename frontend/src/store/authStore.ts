@@ -48,26 +48,29 @@ export const useAuthStore = create<AuthState>()(
           console.log('Login attempt:', identifier);
           const response = await api.login(identifier, password);
           console.log('Login response:', response);
+          
+          // Store token
           localStorage.setItem('token', response.token);
           
-          // Get user from response or decode from token
-          let user = response.user;
-          if (!user) {
-            const decoded = decodeToken(response.token);
-            console.log('Decoded token:', decoded);
-            if (decoded) {
-              user = {
-                id: decoded.userId,
-                username: decoded.username,
-                email: identifier.includes('@') ? identifier : '',
-                createdAt: new Date().toISOString(),
-              };
-            }
+          // Decode user from JWT token
+          const decoded = decodeToken(response.token);
+          console.log('Decoded token:', decoded);
+          
+          if (!decoded) {
+            throw new Error('Invalid token received');
           }
+          
+          const user = {
+            id: decoded.userId,
+            username: decoded.username,
+            email: identifier.includes('@') ? identifier : '',
+            createdAt: new Date().toISOString(),
+          };
           
           console.log('Setting user:', user);
           localStorage.setItem('user', JSON.stringify(user));
           
+          // Update auth state first
           set({
             user,
             token: response.token,
@@ -76,10 +79,16 @@ export const useAuthStore = create<AuthState>()(
           });
           console.log('Auth state updated, isAuthenticated: true');
           
-          // Connect WebSocket (don't block login if it fails)
-          websocket.connect(response.token).catch((err) => {
-            console.error('WebSocket connection failed:', err);
-          });
+          // Connect WebSocket after successful login
+          try {
+            console.log('Connecting WebSocket...');
+            await websocket.connect(response.token);
+            console.log('WebSocket connected successfully');
+          } catch (wsError) {
+            console.error('WebSocket connection failed:', wsError);
+            // Don't fail login if WebSocket fails - user can still use the app
+          }
+          
         } catch (error: any) {
           console.error('Login error:', error);
           set({
@@ -118,9 +127,10 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        console.log('Logging out...');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        websocket.disconnect();
+        websocket.disconnect(); // Properly disconnect WebSocket
         set({
           user: null,
           token: null,
@@ -140,9 +150,10 @@ export const useAuthStore = create<AuthState>()(
       },
 
       clearAuth: () => {
+        console.log('Clearing auth...');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        websocket.disconnect();
+        websocket.disconnect(); // Properly disconnect WebSocket
         set({
           user: null,
           token: null,
