@@ -78,6 +78,7 @@ export const useWebSocket = () => {
         });
       } else {
         // This is a new message from another user
+        console.log('📨 Received new message from another user:', payload);
         const newMessage = {
           id: payload.messageId,
           roomId: msg.roomId!,
@@ -89,7 +90,9 @@ export const useWebSocket = () => {
           createdAt: payload.timestamp,
           updatedAt: payload.timestamp,
         };
+        console.log('📨 Adding message to store:', newMessage);
         addMessage(newMessage);
+        console.log('✅ Message added to store successfully');
       }
 
       // Send delivery acknowledgment automatically with a small delay

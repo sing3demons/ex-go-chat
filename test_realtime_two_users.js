@@ -21,7 +21,7 @@ async function testRealtimeChat() {
   const token2 = await getUser2Token();
   console.log('✅ Got token for user 2');
 
-  const roomId = '696aea6abacf94d10c061470'; // Test room
+  const roomId = '696b02347d48e8e6de7d5752'; // Test room
 
   // Connect User 1
   const ws1 = new WebSocket(`ws://localhost:8080/ws?token=${token1}`);
@@ -79,16 +79,34 @@ async function testRealtimeChat() {
   }
 
   ws1.on('message', function message(data) {
-    const msg = JSON.parse(data.toString());
-    if (msg.type === 'message') {
-      console.log('📨 User 1 received message:', msg.payload.content, 'from:', msg.payload.senderId);
+    const messages = data.toString().trim().split('\n');
+    for (const messageData of messages) {
+      if (messageData.trim()) {
+        try {
+          const msg = JSON.parse(messageData);
+          if (msg.type === 'message') {
+            console.log('📨 User 1 received message:', msg.payload.content, 'from:', msg.payload.senderId);
+          }
+        } catch (error) {
+          console.error('Failed to parse message for User 1:', error);
+        }
+      }
     }
   });
 
   ws2.on('message', function message(data) {
-    const msg = JSON.parse(data.toString());
-    if (msg.type === 'message') {
-      console.log('📨 User 2 received message:', msg.payload.content, 'from:', msg.payload.senderId);
+    const messages = data.toString().trim().split('\n');
+    for (const messageData of messages) {
+      if (messageData.trim()) {
+        try {
+          const msg = JSON.parse(messageData);
+          if (msg.type === 'message') {
+            console.log('📨 User 2 received message:', msg.payload.content, 'from:', msg.payload.senderId);
+          }
+        } catch (error) {
+          console.error('Failed to parse message for User 2:', error);
+        }
+      }
     }
   });
 

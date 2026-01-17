@@ -9,12 +9,36 @@ interface MessageListProps {
 }
 
 export const MessageList = ({ roomId }: MessageListProps) => {
-  // Use simple selectors without complex dependencies
-  const messages = useChatStore((state) => state.messages[roomId] || []);
+  // Use React state to manage messages locally
+  const [localMessages, setLocalMessages] = useState<Message[]>([]);
+  const [forceUpdate, setForceUpdate] = useState(0);
+  
+  // Get store functions
   const loadMessages = useChatStore((state) => state.loadMessages);
   const markAsRead = useChatStore((state) => state.markAsRead);
   const isLoading = useChatStore((state) => state.isLoading);
   const user = useAuthStore((state) => state.user);
+  
+  // Subscribe to store changes manually using subscribeWithSelector
+  useEffect(() => {
+    const unsubscribe = useChatStore.subscribe(
+      (state) => state.messages[roomId],
+      (messages) => {
+        console.log(`🔄 Store messages changed for room ${roomId}, count: ${messages?.length || 0}`);
+        setLocalMessages([...(messages || [])]);
+        setForceUpdate(prev => prev + 1);
+      }
+    );
+    
+    // Initial load
+    const initialMessages = useChatStore.getState().messages[roomId] || [];
+    setLocalMessages([...initialMessages]);
+    
+    return unsubscribe;
+  }, [roomId]);
+  
+  // Debug log
+  console.log(`🔄 MessageList render - Room: ${roomId}, Local Messages: ${localMessages.length}, ForceUpdate: ${forceUpdate}`);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -29,7 +53,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [localMessages]);
 
   // Load initial messages
   useEffect(() => {
@@ -88,7 +112,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
         observerRef.current.disconnect();
       }
     };
-  }, [messages]);
+  }, [localMessages]);
 
   // Clear observed messages when room changes
   useEffect(() => {
@@ -101,12 +125,12 @@ export const MessageList = ({ roomId }: MessageListProps) => {
     if (!container || isLoadingMore) return;
 
     // Check if scrolled to top
-    if (container.scrollTop === 0 && messages.length > 0) {
+    if (container.scrollTop === 0 && localMessages.length > 0) {
       setIsLoadingMore(true);
       const oldScrollHeight = container.scrollHeight;
       
       // Load more messages
-      await loadMessages(roomId, 50, messages.length);
+      await loadMessages(roomId, 50, localMessages.length);
       
       // Maintain scroll position
       setTimeout(() => {
@@ -124,7 +148,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
     let currentDate = '';
     let currentGroup: Message[] = [];
 
-    messages.forEach((message) => {
+    localMessages.forEach((message) => {
       const messageDate = new Date(message.createdAt).toLocaleDateString();
       
       if (messageDate !== currentDate) {
@@ -168,7 +192,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
     }
   };
 
-  if (isLoading && messages.length === 0) {
+  if (isLoading && localMessages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-gray-500">Loading messages...</div>
@@ -178,6 +202,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
 
   return (
     <div 
+      key={`${roomId}-${localMessages.length}-${forceUpdate}`}
       ref={messagesContainerRef}
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto p-2 sm:p-3 bg-gray-50 scroll-smooth min-h-0"
@@ -188,7 +213,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
         </div>
       )}
       
-      {messages.length === 0 ? (
+      {localMessages.length === 0 ? (
         <div className="flex items-center justify-center h-full text-gray-500 p-4">
           <div className="text-center">
             <svg className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">

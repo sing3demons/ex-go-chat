@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 import type { Message } from '../types';
 import { api } from '../services/api';
 import { websocket } from '../services/websocket';
@@ -7,6 +8,7 @@ interface ChatState {
   messages: Record<string, Message[]>; // roomId -> messages
   currentRoomId: string | null;
   isLoading: boolean;
+  updateCounter: number; // Force re-renders
   
   setCurrentRoom: (roomId: string) => void;
   loadMessages: (roomId: string, limit?: number, offset?: number) => Promise<void>;
@@ -25,10 +27,12 @@ interface ChatState {
   clearMessages: (roomId: string) => void;
 }
 
-export const useChatStore = create<ChatState>()((set, get) => ({
+export const useChatStore = create<ChatState>()(
+  subscribeWithSelector((set, get) => ({
   messages: {},
   currentRoomId: null,
   isLoading: false,
+  updateCounter: 0,
 
   setCurrentRoom: (roomId: string) => {
     set({ currentRoomId: roomId });
@@ -90,14 +94,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       console.log('Adding new message to store:', message.id, 'Room:', message.roomId);
       const newMessages = [...existingMessages, message];
       
+      // Force a completely new state object to trigger re-renders
       const newState = {
+        ...state,
         messages: {
           ...state.messages,
           [message.roomId]: newMessages,
         },
+        updateCounter: state.updateCounter + 1, // Force re-render
       };
       
       console.log('Updated messages count for room', message.roomId, ':', newMessages.length);
+      console.log('🔔 Notifying subscribers of store change...');
       return newState;
     });
   },
@@ -313,4 +321,5 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return { messages: newMessages };
     });
   },
-}));
+}))
+);
