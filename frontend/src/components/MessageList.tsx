@@ -1,22 +1,19 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageItem } from './MessageItem';
 import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
-import { shallow } from 'zustand/shallow';
+import type { Message } from '../types';
 
 // Empty array constant to avoid creating new references
-const EMPTY_MESSAGES: never[] = [];
+const EMPTY_MESSAGES: Message[] = [];
 
 interface MessageListProps {
   roomId: string;
 }
 
 export const MessageList = ({ roomId }: MessageListProps) => {
-  // Use shallow comparison to ensure proper reactivity
-  const messages = useChatStore(
-    (state) => state.messages[roomId] || EMPTY_MESSAGES,
-    shallow
-  );
+  // Use direct selector for messages to ensure proper reactivity
+  const messages = useChatStore((state) => state.messages[roomId] || EMPTY_MESSAGES);
   const loadMessages = useChatStore((state) => state.loadMessages);
   const markAsRead = useChatStore((state) => state.markAsRead);
   const isLoading = useChatStore((state) => state.isLoading);
@@ -129,9 +126,9 @@ export const MessageList = ({ roomId }: MessageListProps) => {
 
   // Group messages by date
   const groupMessagesByDate = () => {
-    const groups: { date: string; messages: typeof messages }[] = [];
+    const groups: { date: string; messages: Message[] }[] = [];
     let currentDate = '';
-    let currentGroup: typeof messages = [];
+    let currentGroup: Message[] = [];
 
     messages.forEach((message) => {
       const messageDate = new Date(message.createdAt).toLocaleDateString();

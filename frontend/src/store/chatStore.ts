@@ -75,6 +75,7 @@ export const useChatStore = create<ChatState>()(
   },
 
   addMessage: (message: Message) => {
+    console.log('🔥 addMessage called:', message);
     set((state) => {
       const existingMessages = state.messages[message.roomId] || [];
       
@@ -85,15 +86,18 @@ export const useChatStore = create<ChatState>()(
       );
       
       if (messageExists) {
+        console.log('⚠️ Message already exists, skipping:', message.id);
         return state; // Don't add duplicate
       }
       
+      console.log('✅ Adding message to store, current count:', existingMessages.length);
       const newState = {
         messages: {
           ...state.messages,
           [message.roomId]: [...existingMessages, message],
         },
       };
+      console.log('📊 New message count:', newState.messages[message.roomId].length);
       return newState;
     });
   },
