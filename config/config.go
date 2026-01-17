@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -9,6 +10,8 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Redis    RedisConfig
+	Presence PresenceConfig
 	JWT      JWTConfig
 }
 
@@ -25,6 +28,19 @@ type DatabaseConfig struct {
 	URI      string
 	Database string
 	Timeout  time.Duration
+}
+
+// RedisConfig holds Redis configuration
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
+	Timeout  time.Duration
+}
+
+// PresenceConfig holds presence service configuration
+type PresenceConfig struct {
+	Backend string // "redis" or "memory"
 }
 
 // JWTConfig holds JWT configuration
@@ -47,6 +63,15 @@ func Load() *Config {
 			Database: getEnv("MONGODB_DATABASE", "chat_system"),
 			Timeout:  getDurationEnv("MONGODB_TIMEOUT", 10*time.Second),
 		},
+		Redis: RedisConfig{
+			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       getIntEnv("REDIS_DB", 0),
+			Timeout:  getDurationEnv("REDIS_TIMEOUT", 5*time.Second),
+		},
+		Presence: PresenceConfig{
+			Backend: getEnv("PRESENCE_BACKEND", "memory"), // "redis" or "memory"
+		},
 		JWT: JWTConfig{
 			Secret:     getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 			Expiration: getDurationEnv("JWT_EXPIRATION", 24*time.Hour),
@@ -67,6 +92,16 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
 		if duration, err := time.ParseDuration(value); err == nil {
 			return duration
+		}
+	}
+	return defaultValue
+}
+
+// getIntEnv gets integer from environment variable or returns default
+func getIntEnv(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
 		}
 	}
 	return defaultValue

@@ -16,6 +16,7 @@ import (
 	"realtime-chat-system/pkg/auth"
 	"realtime-chat-system/pkg/database"
 	"realtime-chat-system/pkg/logger"
+	redisClient "realtime-chat-system/pkg/redis"
 
 	"github.com/joho/godotenv"
 )
@@ -51,11 +52,35 @@ func main() {
 	}
 	log.Info("Database indexes created successfully")
 
+	// Connect to Redis
+	redisClient, err := redisClient.NewClient(&cfg.Redis)
+	if err != nil {
+		log.Errorf("Failed to connect to Redis: %v", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			log.Errorf("Failed to close Redis connection: %v", err)
+		}
+	}()
+	log.Info("Connected to Redis successfully")
+
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db.Database)
 	roomRepo := repository.NewRoomRepository(db.Database)
 	messageRepo := repository.NewMessageRepository(db.Database)
 	notificationRepo := repository.NewNotificationRepository(db.Database)
+	
+	// Initialize presence repository (choose between memory or Redis)
+	var presenceRepo repository.PresenceRepository
+	if redisClient != nil {
+		presenceRepo = repository.NewRedisPresenceRepository(redisClient)
+		log.Info("Using Redis presence repository")
+	} else {
+		presenceRepo = repository.NewMemoryPresenceRepository()
+		log.Info("Using memory presence repository")
+	}
+	
 	log.Info("Repositories initialized")
 
 	// Initialize JWT manager
@@ -63,10 +88,11 @@ func main() {
 	log.Info("JWT manager initialized")
 
 	// Initialize services
+	cacheService := service.NewCacheService(redisClient)
 	authService := service.NewAuthService(userRepo, jwtManager)
 	roomService := service.NewRoomService(roomRepo)
-	messageService := service.NewMessageService(messageRepo, roomRepo)
-	presenceService := service.NewPresenceService(log)
+	messageService := service.NewMessageService(messageRepo, roomRepo, cacheService)
+	presenceService := service.NewPresenceService(presenceRepo, log)
 	notificationService := service.NewNotificationService(notificationRepo)
 	log.Info("Services initialized")
 
