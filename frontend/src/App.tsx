@@ -6,6 +6,7 @@ import { ChatPage } from './pages/ChatPage';
 import { useAuthStore } from './store/authStore';
 import { websocket } from './services/websocket';
 import { ErrorBoundary } from './components';
+import { MessagesProvider } from './contexts/MessagesContext';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -34,21 +35,23 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route
-            path="/chat"
-            element={
-              <PrivateRoute>
-                <ChatPage />
-              </PrivateRoute>
-            }
-          />
-          <Route path="/" element={<Navigate to="/chat" />} />
-        </Routes>
-      </BrowserRouter>
+      <MessagesProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route
+              path="/chat"
+              element={
+                <PrivateRoute>
+                  <ChatPage />
+                </PrivateRoute>
+              }
+            />
+            <Route path="/" element={<Navigate to="/chat" />} />
+          </Routes>
+        </BrowserRouter>
+      </MessagesProvider>
     </ErrorBoundary>
   );
 }

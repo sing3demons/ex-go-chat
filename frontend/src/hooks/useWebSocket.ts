@@ -93,6 +93,17 @@ export const useWebSocket = () => {
         console.log('📨 Adding message to store:', newMessage);
         addMessage(newMessage);
         console.log('✅ Message added to store successfully');
+        
+        // FORCE RELOAD when receiving message from another user
+        const authStore = JSON.parse(localStorage.getItem('auth-storage') || '{}');
+        const currentUserId = authStore.state?.user?.id;
+        
+        if (currentUserId && payload.senderId !== currentUserId) {
+          console.log('🔄 Received message from another user, forcing reload...');
+          setTimeout(() => {
+            window.location.reload();
+          }, 100);
+        }
       }
 
       // Send delivery acknowledgment automatically with a small delay
