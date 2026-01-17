@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { MessageItem } from './MessageItem';
-import { useChatStore } from '../store/chatStore';
-import { useAuthStore } from '../store/authStore';
-import { useMessages } from '../contexts/MessagesContext';
+import { api } from '../services/api';
 import type { Message } from '../types';
 
 interface MessageListProps {
@@ -10,120 +8,57 @@ interface MessageListProps {
 }
 
 export const MessageList = ({ roomId }: MessageListProps) => {
-  // Use Messages Context instead of direct Zustand
-  const { getMessages, state } = useMessages();
-  const messages = getMessages(roomId);
-  
-  // Get store functions
-  const loadMessages = useChatStore((state) => state.loadMessages);
-  const markAsRead = useChatStore((state) => state.markAsRead);
-  const isLoading = useChatStore((state) => state.isLoading);
-  const user = useAuthStore((state) => state.user);
-  
-  // Debug log
-  console.log(`🔄 MessageList render - Room: ${roomId}, Messages: ${messages.length}, UpdateCount: ${state.updateCount}`);
+  // Use only React state - no Zustand
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const observedMessagesRef = useRef<Set<string>>(new Set());
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, state.updateCount]);
+  // Load messages from API - memoized to prevent infinite loops
+  const loadMessages = useCallback(async () => {
+    if (!roomId) return;
+    
+    try {
+      setIsLoading(true);
+      const apiMessages = await api.getMessages(roomId, 50, 0);
+      const reversedMessages = apiMessages.reverse();
+      setMessages(reversedMessages);
+      console.log(`✅ Loaded ${reversedMessages.length} messages for room ${roomId}`);
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [roomId]);
 
   // Load initial messages
   useEffect(() => {
     if (roomId) {
-      loadMessages(roomId);
+      loadMessages();
     }
   }, [roomId, loadMessages]);
 
-  // Setup Intersection Observer for read receipts
+  // Poll for new messages every 3 seconds
   useEffect(() => {
-    if (!user) return;
+    if (!roomId) return;
 
-    // Create observer to detect when messages are visible
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const messageId = entry.target.getAttribute('data-message-id');
-            const senderId = entry.target.getAttribute('data-sender-id');
-            
-            if (messageId && senderId && senderId !== user.id) {
-              // Only mark as read if it's not our own message and we haven't already marked it
-              if (!observedMessagesRef.current.has(messageId)) {
-                observedMessagesRef.current.add(messageId);
-                markAsRead(roomId, messageId);
-              }
-            }
-          }
-        });
-      },
-      {
-        root: messagesContainerRef.current,
-        threshold: 0.5, // Message must be 50% visible
-      }
-    );
+    const interval = setInterval(() => {
+      console.log('🔄 Polling for new messages...');
+      loadMessages();
+    }, 3000);
 
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [roomId, user, markAsRead]);
+    return () => clearInterval(interval);
+  }, [roomId, loadMessages]);
 
-  // Observe messages for read receipts
+  // Auto-scroll when messages change
   useEffect(() => {
-    if (!observerRef.current) return;
-
-    // Observe all message elements
-    const messageElements = messagesContainerRef.current?.querySelectorAll('[data-message-id]');
-    messageElements?.forEach((element) => {
-      observerRef.current?.observe(element);
-    });
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [messages, state.updateCount]);
-
-  // Clear observed messages when room changes
-  useEffect(() => {
-    observedMessagesRef.current.clear();
-  }, [roomId]);
-
-  // Handle scroll for infinite loading
-  const handleScroll = async () => {
-    const container = messagesContainerRef.current;
-    if (!container || isLoadingMore) return;
-
-    // Check if scrolled to top
-    if (container.scrollTop === 0 && messages.length > 0) {
-      setIsLoadingMore(true);
-      const oldScrollHeight = container.scrollHeight;
-      
-      // Load more messages
-      await loadMessages(roomId, 50, messages.length);
-      
-      // Maintain scroll position
-      setTimeout(() => {
-        if (container) {
-          container.scrollTop = container.scrollHeight - oldScrollHeight;
-        }
-        setIsLoadingMore(false);
-      }, 100);
-    }
-  };
+    scrollToBottom();
+  }, [messages]);
 
   // Group messages by date
   const groupMessagesByDate = () => {
@@ -162,11 +97,11 @@ export const MessageList = ({ roomId }: MessageListProps) => {
     yesterday.setDate(yesterday.getDate() - 1);
 
     if (date.toLocaleDateString() === today.toLocaleDateString()) {
-      return 'Today';
+      return 'วันนี้';
     } else if (date.toLocaleDateString() === yesterday.toLocaleDateString()) {
-      return 'Yesterday';
+      return 'เมื่อวาน';
     } else {
-      return date.toLocaleDateString('en-US', { 
+      return date.toLocaleDateString('th-TH', { 
         weekday: 'long', 
         year: 'numeric', 
         month: 'long', 
@@ -178,32 +113,24 @@ export const MessageList = ({ roomId }: MessageListProps) => {
   if (isLoading && messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-gray-500">Loading messages...</div>
+        <div className="text-gray-500">กำลังโหลดข้อความ...</div>
       </div>
     );
   }
 
   return (
     <div 
-      key={`${roomId}-${messages.length}-${state.updateCount}`}
       ref={messagesContainerRef}
-      onScroll={handleScroll}
       className="flex-1 overflow-y-auto p-2 sm:p-3 bg-gray-50 scroll-smooth min-h-0"
     >
-      {isLoadingMore && (
-        <div className="text-center text-gray-500 text-xs sm:text-sm py-2">
-          Loading more messages...
-        </div>
-      )}
-      
       {messages.length === 0 ? (
         <div className="flex items-center justify-center h-full text-gray-500 p-4">
           <div className="text-center">
             <svg className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
-            <p className="text-sm sm:text-base font-medium">No messages yet</p>
-            <p className="text-xs sm:text-sm mt-1">Start the conversation!</p>
+            <p className="text-sm sm:text-base font-medium">ยังไม่มีข้อความ</p>
+            <p className="text-xs sm:text-sm mt-1">เริ่มการสนทนากันเลย!</p>
           </div>
         </div>
       ) : (
@@ -220,10 +147,8 @@ export const MessageList = ({ roomId }: MessageListProps) => {
               {/* Messages */}
               {group.messages.map((message, messageIndex) => (
                 <MessageItem 
-                  key={`${groupIndex}-${message.id}-${messageIndex}-${state.updateCount}`} 
+                  key={`${groupIndex}-${message.id}-${messageIndex}`} 
                   message={message}
-                  data-message-id={message.id}
-                  data-sender-id={message.senderId}
                 />
               ))}
             </div>
