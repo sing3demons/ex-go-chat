@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
 import type { Message } from '../types';
 import { api } from '../services/api';
 import { websocket } from '../services/websocket';
@@ -26,8 +25,7 @@ interface ChatState {
   clearMessages: (roomId: string) => void;
 }
 
-export const useChatStore = create<ChatState>()(
-  subscribeWithSelector((set, get) => ({
+export const useChatStore = create<ChatState>()((set, get) => ({
   messages: {},
   currentRoomId: null,
   isLoading: false,
@@ -75,7 +73,6 @@ export const useChatStore = create<ChatState>()(
   },
 
   addMessage: (message: Message) => {
-    console.log('🔥 addMessage called:', message);
     set((state) => {
       const existingMessages = state.messages[message.roomId] || [];
       
@@ -86,18 +83,21 @@ export const useChatStore = create<ChatState>()(
       );
       
       if (messageExists) {
-        console.log('⚠️ Message already exists, skipping:', message.id);
+        console.log('Message already exists, skipping:', message.id);
         return state; // Don't add duplicate
       }
       
-      console.log('✅ Adding message to store, current count:', existingMessages.length);
+      console.log('Adding new message to store:', message.id, 'Room:', message.roomId);
+      const newMessages = [...existingMessages, message];
+      
       const newState = {
         messages: {
           ...state.messages,
-          [message.roomId]: [...existingMessages, message],
+          [message.roomId]: newMessages,
         },
       };
-      console.log('📊 New message count:', newState.messages[message.roomId].length);
+      
+      console.log('Updated messages count for room', message.roomId, ':', newMessages.length);
       return newState;
     });
   },
@@ -313,5 +313,4 @@ export const useChatStore = create<ChatState>()(
       return { messages: newMessages };
     });
   },
-}))
-);
+}));

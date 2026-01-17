@@ -4,23 +4,17 @@ import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import type { Message } from '../types';
 
-// Empty array constant to avoid creating new references
-const EMPTY_MESSAGES: Message[] = [];
-
 interface MessageListProps {
   roomId: string;
 }
 
 export const MessageList = ({ roomId }: MessageListProps) => {
-  // Use direct selector for messages to ensure proper reactivity
-  const messages = useChatStore((state) => state.messages[roomId] || EMPTY_MESSAGES);
+  // Use simple selectors without complex dependencies
+  const messages = useChatStore((state) => state.messages[roomId] || []);
   const loadMessages = useChatStore((state) => state.loadMessages);
   const markAsRead = useChatStore((state) => state.markAsRead);
   const isLoading = useChatStore((state) => state.isLoading);
   const user = useAuthStore((state) => state.user);
-  
-  // Create a key that changes when messages change to force re-render
-  const messagesKey = `${roomId}-${messages.length}-${messages[messages.length - 1]?.id || 'empty'}`;
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -184,7 +178,6 @@ export const MessageList = ({ roomId }: MessageListProps) => {
 
   return (
     <div 
-      key={messagesKey}
       ref={messagesContainerRef}
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto p-2 sm:p-3 bg-gray-50 scroll-smooth min-h-0"

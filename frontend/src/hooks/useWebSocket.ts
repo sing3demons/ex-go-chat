@@ -60,12 +60,10 @@ export const useWebSocket = () => {
   useEffect(() => {
     // Handle incoming messages
     const unsubMessage = websocket.on('message', (msg) => {
-      console.log('🎯 Received message in useWebSocket:', msg);
       const payload = msg.payload as ChatMessagePayload & { tempId?: string };
       
       // Check if this is a confirmation of an optimistic message
       if (payload.tempId) {
-        console.log('✅ Confirming optimistic message:', payload.tempId);
         // This is a server confirmation - replace the optimistic message
         confirmMessage(payload.tempId, {
           id: payload.messageId,
@@ -79,9 +77,8 @@ export const useWebSocket = () => {
           updatedAt: payload.timestamp,
         });
       } else {
-        console.log('📨 Adding new message from another user:', payload);
         // This is a new message from another user
-        addMessage({
+        const newMessage = {
           id: payload.messageId,
           roomId: msg.roomId!,
           senderId: payload.senderId,
@@ -91,7 +88,8 @@ export const useWebSocket = () => {
           deleted: false,
           createdAt: payload.timestamp,
           updatedAt: payload.timestamp,
-        });
+        };
+        addMessage(newMessage);
       }
 
       // Send delivery acknowledgment automatically with a small delay
