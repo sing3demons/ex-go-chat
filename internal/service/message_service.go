@@ -22,17 +22,17 @@ type MessageService interface {
 
 // messageService implements MessageService
 type messageService struct {
-	messageRepo  repository.MessageRepository
-	roomRepo     repository.RoomRepository
-	cacheService *CacheService
+	messageRepo repository.MessageRepository
+	roomRepo    repository.RoomRepository
+	cacheRepo   repository.MessageCacheRepository
 }
 
 // NewMessageService creates a new message service
-func NewMessageService(messageRepo repository.MessageRepository, roomRepo repository.RoomRepository, cacheService *CacheService) MessageService {
+func NewMessageService(messageRepo repository.MessageRepository, roomRepo repository.RoomRepository, cacheRepo repository.MessageCacheRepository) MessageService {
 	return &messageService{
-		messageRepo:  messageRepo,
-		roomRepo:     roomRepo,
-		cacheService: cacheService,
+		messageRepo: messageRepo,
+		roomRepo:    roomRepo,
+		cacheRepo:   cacheRepo,
 	}
 }
 
@@ -92,8 +92,8 @@ func (s *messageService) SendMessage(ctx context.Context, roomID, senderID, cont
 	}
 
 	// Cache the message
-	if s.cacheService != nil {
-		if err := s.cacheService.CacheMessage(message); err != nil {
+	if s.cacheRepo != nil {
+		if err := s.cacheRepo.CacheMessage(ctx, message); err != nil {
 			// Log error but don't fail the request
 			// In production, you might want to use a proper logger
 		}
@@ -108,8 +108,8 @@ func (s *messageService) GetMessages(ctx context.Context, roomID string, limit, 
 	// to verify user is a member of the room
 	
 	// Try to get from cache first (only for recent messages, offset = 0)
-	if s.cacheService != nil && offset == 0 {
-		cachedMessages, err := s.cacheService.GetCachedRoomMessages(roomID, int64(limit))
+	if s.cacheRepo != nil && offset == 0 {
+		cachedMessages, err := s.cacheRepo.GetCachedRoomMessages(ctx, roomID, int64(limit))
 		if err == nil && len(cachedMessages) > 0 {
 			// Return cached messages if available
 			return cachedMessages, nil
@@ -123,9 +123,9 @@ func (s *messageService) GetMessages(ctx context.Context, roomID string, limit, 
 	}
 	
 	// Cache the messages if this is a recent fetch (offset = 0)
-	if s.cacheService != nil && offset == 0 {
+	if s.cacheRepo != nil && offset == 0 {
 		for _, message := range messages {
-			if err := s.cacheService.CacheMessage(message); err != nil {
+			if err := s.cacheRepo.CacheMessage(ctx, message); err != nil {
 				// Log error but continue
 			}
 		}
@@ -163,8 +163,8 @@ func (s *messageService) UpdateDeliveryStatus(ctx context.Context, messageID, us
 		}
 
 		// Update cache
-		if s.cacheService != nil {
-			if err := s.cacheService.CacheMessage(message); err != nil {
+		if s.cacheRepo != nil {
+			if err := s.cacheRepo.CacheMessage(ctx, message); err != nil {
 				// Log error but don't fail
 			}
 		}
@@ -209,8 +209,8 @@ func (s *messageService) UpdateReadStatus(ctx context.Context, messageID, userID
 		}
 
 		// Update cache
-		if s.cacheService != nil {
-			if err := s.cacheService.CacheMessage(message); err != nil {
+		if s.cacheRepo != nil {
+			if err := s.cacheRepo.CacheMessage(ctx, message); err != nil {
 				// Log error but don't fail
 			}
 		}
@@ -254,8 +254,8 @@ func (s *messageService) EditMessage(ctx context.Context, messageID, userID, new
 	}
 
 	// Update cache
-	if s.cacheService != nil {
-		if err := s.cacheService.CacheMessage(message); err != nil {
+	if s.cacheRepo != nil {
+		if err := s.cacheRepo.CacheMessage(ctx, message); err != nil {
 			// Log error but don't fail
 		}
 	}
@@ -287,8 +287,8 @@ func (s *messageService) DeleteMessage(ctx context.Context, messageID, userID st
 	}
 
 	// Invalidate cache
-	if s.cacheService != nil {
-		if err := s.cacheService.InvalidateMessage(messageID, message.RoomID); err != nil {
+	if s.cacheRepo != nil {
+		if err := s.cacheRepo.InvalidateMessage(ctx, messageID, message.RoomID); err != nil {
 			// Log error but don't fail
 		}
 	}

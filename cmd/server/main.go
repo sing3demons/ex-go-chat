@@ -71,14 +71,27 @@ func main() {
 	messageRepo := repository.NewMessageRepository(db.Database)
 	notificationRepo := repository.NewNotificationRepository(db.Database)
 	
+	// Initialize cache repositories (choose between memory or Redis)
+	var messageCacheRepo repository.MessageCacheRepository
+	var _ repository.TypingRepository
+	var _ repository.SessionRepository
+	var _ repository.RateLimitRepository
+	
 	// Initialize presence repository (choose between memory or Redis)
 	var presenceRepo repository.PresenceRepository
 	if redisClient != nil {
 		presenceRepo = repository.NewRedisPresenceRepository(redisClient)
-		log.Info("Using Redis presence repository")
+		messageCacheRepo = repository.NewRedisMessageCacheRepository(redisClient)
+		// typingRepo = repository.NewRedisTypingRepository(redisClient)
+		// sessionRepo = repository.NewRedisSessionRepository(redisClient)
+		// rateLimitRepo = repository.NewRedisRateLimitRepository(redisClient)
+		log.Info("Using Redis repositories")
 	} else {
 		presenceRepo = repository.NewMemoryPresenceRepository()
-		log.Info("Using memory presence repository")
+		// For memory implementations, we could create memory versions
+		// For now, set to nil to disable caching features
+		messageCacheRepo = nil
+		log.Info("Using memory presence repository, caching disabled")
 	}
 	
 	log.Info("Repositories initialized")
@@ -88,10 +101,9 @@ func main() {
 	log.Info("JWT manager initialized")
 
 	// Initialize services
-	cacheService := service.NewCacheService(redisClient)
 	authService := service.NewAuthService(userRepo, jwtManager)
 	roomService := service.NewRoomService(roomRepo)
-	messageService := service.NewMessageService(messageRepo, roomRepo, cacheService)
+	messageService := service.NewMessageService(messageRepo, roomRepo, messageCacheRepo)
 	presenceService := service.NewPresenceService(presenceRepo, log)
 	notificationService := service.NewNotificationService(notificationRepo)
 	log.Info("Services initialized")
