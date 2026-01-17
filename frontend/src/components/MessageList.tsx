@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { MessageItem } from './MessageItem';
 import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
+import { shallow } from 'zustand/shallow';
 
 // Empty array constant to avoid creating new references
 const EMPTY_MESSAGES: never[] = [];
@@ -11,14 +12,18 @@ interface MessageListProps {
 }
 
 export const MessageList = ({ roomId }: MessageListProps) => {
-  const allMessages = useChatStore((state) => state.messages);
+  // Use shallow comparison to ensure proper reactivity
+  const messages = useChatStore(
+    (state) => state.messages[roomId] || EMPTY_MESSAGES,
+    shallow
+  );
   const loadMessages = useChatStore((state) => state.loadMessages);
   const markAsRead = useChatStore((state) => state.markAsRead);
   const isLoading = useChatStore((state) => state.isLoading);
   const user = useAuthStore((state) => state.user);
   
-  // Memoize messages for this room to avoid creating new array references
-  const messages = useMemo(() => allMessages[roomId] || EMPTY_MESSAGES, [allMessages, roomId]);
+  // Create a key that changes when messages change to force re-render
+  const messagesKey = `${roomId}-${messages.length}-${messages[messages.length - 1]?.id || 'empty'}`;
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -182,9 +187,10 @@ export const MessageList = ({ roomId }: MessageListProps) => {
 
   return (
     <div 
+      key={messagesKey}
       ref={messagesContainerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto p-2 sm:p-4 bg-gray-50 scroll-smooth"
+      className="flex-1 overflow-y-auto p-2 sm:p-3 bg-gray-50 scroll-smooth min-h-0"
     >
       {isLoadingMore && (
         <div className="text-center text-gray-500 text-xs sm:text-sm py-2">
@@ -205,7 +211,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
       ) : (
         <>
           {messageGroups.map((group, groupIndex) => (
-            <div key={groupIndex}>
+            <div key={`group-${groupIndex}-${group.date}`}>
               {/* Date Separator */}
               <div className="flex items-center justify-center my-3 sm:my-4">
                 <div className="bg-gray-200 text-gray-600 text-xs px-2 sm:px-3 py-1 rounded-full">
@@ -214,9 +220,9 @@ export const MessageList = ({ roomId }: MessageListProps) => {
               </div>
               
               {/* Messages */}
-              {group.messages.map((message) => (
+              {group.messages.map((message, messageIndex) => (
                 <MessageItem 
-                  key={message.id} 
+                  key={`${groupIndex}-${message.id}-${messageIndex}`} 
                   message={message}
                   data-message-id={message.id}
                   data-sender-id={message.senderId}

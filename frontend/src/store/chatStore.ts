@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 import type { Message } from '../types';
 import { api } from '../services/api';
 import { websocket } from '../services/websocket';
@@ -25,7 +26,8 @@ interface ChatState {
   clearMessages: (roomId: string) => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = create<ChatState>()(
+  subscribeWithSelector((set, get) => ({
   messages: {},
   currentRoomId: null,
   isLoading: false,
@@ -38,13 +40,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isLoading: true });
     try {
       const messages = await api.getMessages(roomId, limit, offset);
-      set((state) => ({
-        messages: {
-          ...state.messages,
-          [roomId]: offset === 0 ? messages : [...(state.messages[roomId] || []), ...messages],
-        },
-        isLoading: false,
-      }));
+      set((state) => {
+        const existingMessages = state.messages[roomId] || [];
+        
+        if (offset === 0) {
+          // Fresh load - replace all messages and reverse order (oldest first)
+          return {
+            messages: {
+              ...state.messages,
+              [roomId]: messages.reverse(),
+            },
+            isLoading: false,
+          };
+        } else {
+          // Pagination - prepend new messages, avoiding duplicates
+          const newMessages = messages.filter(newMsg => 
+            !existingMessages.some(existing => existing.id === newMsg.id)
+          );
+          
+          // For pagination, reverse the new messages and prepend them
+          return {
+            messages: {
+              ...state.messages,
+              [roomId]: [...newMessages.reverse(), ...existingMessages],
+            },
+            isLoading: false,
+          };
+        }
+      });
     } catch (error) {
       console.error('Failed to load messages:', error);
       set({ isLoading: false });
@@ -52,12 +75,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   addMessage: (message: Message) => {
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [message.roomId]: [...(state.messages[message.roomId] || []), message],
-      },
-    }));
+    set((state) => {
+      const existingMessages = state.messages[message.roomId] || [];
+      
+      // Check if message already exists (by ID or tempId)
+      const messageExists = existingMessages.some(m => 
+        m.id === message.id || 
+        (message.tempId && m.tempId === message.tempId)
+      );
+      
+      if (messageExists) {
+        return state; // Don't add duplicate
+      }
+      
+      const newState = {
+        messages: {
+          ...state.messages,
+          [message.roomId]: [...existingMessages, message],
+        },
+      };
+      return newState;
+    });
   },
 
   // Optimistic update: Add message immediately with pending status
@@ -102,6 +140,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // Confirm message: Replace optimistic message with server response
   confirmMessage: (tempId: string, serverMessage: Message) => {
+    console.log('✅ Confirming message:', { tempId, serverMessage });
     set((state) => {
       const newMessages = { ...state.messages };
       Object.keys(newMessages).forEach((roomId) => {
@@ -109,6 +148,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           msg.tempId === tempId ? { ...serverMessage, pending: false, failed: false } : msg
         );
       });
+      console.log('✅ Message confirmed in store');
       return { messages: newMessages };
     });
   },
@@ -214,6 +254,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: (roomId: string, content: string) => {
+    console.log('🚀 Sending message:', { roomId, content });
     // Get current user ID from auth store
     const authStore = JSON.parse(localStorage.getItem('auth-storage') || '{}');
     const senderId = authStore.state?.user?.id;
@@ -223,8 +264,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
+    console.log('👤 Sender ID:', senderId);
+
     // Add optimistic message
     const tempId = get().addOptimisticMessage(roomId, content, senderId);
+    console.log('⏳ Added optimistic message with tempId:', tempId);
 
     // Send via WebSocket with tempId for tracking
     websocket.send({
@@ -265,4 +309,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return { messages: newMessages };
     });
   },
-}));
+}))
+);

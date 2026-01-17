@@ -65,6 +65,7 @@ export type WSMessageType =
   | 'delete'
   | 'heartbeat'
   | 'join_room'
+  | 'room_created'
   | 'error';
 
 export interface WSMessage {
@@ -113,6 +114,13 @@ export interface DeletePayload {
 export interface ErrorPayload {
   code: string;
   message: string;
+}
+
+export interface RoomCreatedPayload {
+  roomId: string;
+  roomType: 'direct' | 'group';
+  name?: string;
+  members: string[];
 }
 
 // API Response types

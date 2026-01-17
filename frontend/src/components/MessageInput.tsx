@@ -62,7 +62,7 @@ export const MessageInput = ({ roomId }: MessageInputProps) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border-t p-2 sm:p-4 bg-white">
+    <form onSubmit={handleSubmit} className="border-t p-2 sm:p-3 bg-white flex-shrink-0">
       <div className="flex gap-1 sm:gap-2 items-end">
         {/* Emoji/Attachment buttons (placeholder) */}
         <button

@@ -29,23 +29,33 @@ class WebSocketService {
 
       this.token = token;
       const url = `${WS_URL}/ws?token=${token}`;
+      console.log('🔌 Connecting to WebSocket:', url);
 
       try {
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
-          console.log('WebSocket connected');
+          console.log('✅ WebSocket connected successfully');
           this.reconnectAttempts = 0;
           this.startHeartbeat();
           resolve();
         };
 
         this.ws.onmessage = (event) => {
+          console.log('📨 WebSocket message received:', event.data);
           try {
-            const message: WSMessage = JSON.parse(event.data);
-            this.handleMessage(message);
+            // Handle multiple JSON messages separated by newlines
+            const messages = event.data.trim().split('\n');
+            for (const messageData of messages) {
+              if (messageData.trim()) {
+                const message: WSMessage = JSON.parse(messageData);
+                console.log('📨 Parsed message:', message);
+                this.handleMessage(message);
+              }
+            }
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
+            console.error('Raw message data:', event.data);
           }
         };
 
@@ -99,9 +109,11 @@ class WebSocketService {
   }
 
   send(message: WSMessage): void {
+    console.log('📤 Sending WebSocket message:', message);
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify(message));
+        console.log('✅ Message sent successfully');
       } catch (error) {
         console.error('Failed to send WebSocket message:', error);
         if (this.connectionErrorCallback) {
@@ -109,7 +121,7 @@ class WebSocketService {
         }
       }
     } else {
-      console.error('WebSocket is not connected');
+      console.error('❌ WebSocket is not connected, readyState:', this.ws?.readyState);
       if (this.connectionErrorCallback) {
         this.connectionErrorCallback('Not connected. Please check your connection.');
       }
@@ -117,27 +129,35 @@ class WebSocketService {
   }
 
   on(type: WSMessageType, handler: MessageHandler): () => void {
+    console.log(`📝 Registering handler for message type: ${type}`);
     if (!this.handlers.has(type)) {
       this.handlers.set(type, []);
     }
     this.handlers.get(type)!.push(handler);
+    console.log(`✅ Handler registered. Total handlers for ${type}: ${this.handlers.get(type)!.length}`);
 
     // Return unsubscribe function
     return () => {
+      console.log(`🗑️ Unregistering handler for message type: ${type}`);
       const handlers = this.handlers.get(type);
       if (handlers) {
         const index = handlers.indexOf(handler);
         if (index > -1) {
           handlers.splice(index, 1);
+          console.log(`✅ Handler unregistered. Remaining handlers for ${type}: ${handlers.length}`);
         }
       }
     };
   }
 
   private handleMessage(message: WSMessage): void {
+    console.log('🎯 Handling WebSocket message:', message);
     const handlers = this.handlers.get(message.type);
     if (handlers) {
+      console.log(`📡 Found ${handlers.length} handlers for message type: ${message.type}`);
       handlers.forEach((handler) => handler(message));
+    } else {
+      console.warn(`⚠️ No handlers found for message type: ${message.type}`);
     }
   }
 

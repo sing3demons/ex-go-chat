@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { websocket } from '../services/websocket';
 import { useChatStore } from '../store/chatStore';
 import { usePresenceStore } from '../store/presenceStore';
@@ -9,10 +9,13 @@ import type {
   EditPayload,
   DeletePayload,
   StatusPayload,
-  TypingPayload
+  TypingPayload,
+  RoomCreatedPayload
 } from '../types';
 
 export const useWebSocket = () => {
+  const [isConnected, setIsConnected] = useState(false);
+  
   const addMessage = useChatStore((state) => state.addMessage);
   const confirmMessage = useChatStore((state) => state.confirmMessage);
   const failMessage = useChatStore((state) => state.failMessage);
@@ -23,6 +26,22 @@ export const useWebSocket = () => {
   const setUserOffline = usePresenceStore((state) => state.setUserOffline);
   const setTypingUsers = usePresenceStore((state) => state.setTypingUsers);
   const rooms = useRoomStore((state) => state.rooms);
+  const addRoom = useRoomStore((state) => state.addRoom);
+
+  // Update connection status
+  useEffect(() => {
+    const updateConnectionStatus = () => {
+      setIsConnected(websocket.isConnected());
+    };
+
+    // Check initial status
+    updateConnectionStatus();
+
+    // Set up interval to check connection status
+    const interval = setInterval(updateConnectionStatus, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Subscribe to room events when rooms change
   const subscribeToRooms = useCallback(() => {
@@ -41,10 +60,12 @@ export const useWebSocket = () => {
   useEffect(() => {
     // Handle incoming messages
     const unsubMessage = websocket.on('message', (msg) => {
+      console.log('🎯 Received message in useWebSocket:', msg);
       const payload = msg.payload as ChatMessagePayload & { tempId?: string };
       
       // Check if this is a confirmation of an optimistic message
       if (payload.tempId) {
+        console.log('✅ Confirming optimistic message:', payload.tempId);
         // This is a server confirmation - replace the optimistic message
         confirmMessage(payload.tempId, {
           id: payload.messageId,
@@ -58,6 +79,7 @@ export const useWebSocket = () => {
           updatedAt: payload.timestamp,
         });
       } else {
+        console.log('📨 Adding new message from another user:', payload);
         // This is a new message from another user
         addMessage({
           id: payload.messageId,
@@ -72,12 +94,14 @@ export const useWebSocket = () => {
         });
       }
 
-      // Send delivery acknowledgment automatically
-      websocket.send({
-        type: 'delivered',
-        roomId: msg.roomId,
-        payload: { messageId: payload.messageId }
-      });
+      // Send delivery acknowledgment automatically with a small delay
+      setTimeout(() => {
+        websocket.send({
+          type: 'delivered',
+          roomId: msg.roomId,
+          payload: { messageId: payload.messageId }
+        });
+      }, 100); // 100ms delay to ensure message is saved to database
     });
 
     // Handle message edits
@@ -132,6 +156,24 @@ export const useWebSocket = () => {
       }
     });
 
+    // Handle room creation notifications
+    const unsubRoomCreated = websocket.on('room_created', (msg) => {
+      const payload = msg.payload as RoomCreatedPayload;
+      
+      // Add the new room to the room store
+      const newRoom = {
+        id: payload.roomId,
+        type: payload.roomType,
+        name: payload.name || '',
+        members: payload.members,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      addRoom(newRoom);
+      console.log('New room created and added:', payload.roomId);
+    });
+
     return () => {
       unsubMessage();
       unsubEdit();
@@ -141,13 +183,20 @@ export const useWebSocket = () => {
       unsubTyping();
       unsubPresence();
       unsubError();
+      unsubRoomCreated();
     };
-  }, [addMessage, confirmMessage, failMessage, updateMessage, deleteMessage, updateMessageStatus, setUserOnline, setUserOffline, setTypingUsers]);
+  }, [addMessage, confirmMessage, failMessage, updateMessage, deleteMessage, updateMessageStatus, setUserOnline, setUserOffline, setTypingUsers, addRoom]);
 
   return {
-    isConnected: websocket.isConnected(),
-    connect: (token: string) => websocket.connect(token),
-    disconnect: () => websocket.disconnect(),
+    isConnected,
+    connect: async (token: string) => {
+      await websocket.connect(token);
+      setIsConnected(websocket.isConnected());
+    },
+    disconnect: () => {
+      websocket.disconnect();
+      setIsConnected(false);
+    },
     subscribeToRooms,
   };
 };
