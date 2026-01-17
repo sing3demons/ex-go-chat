@@ -87,10 +87,10 @@ func main() {
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
 	authMiddleware := middleware.NewAuthMiddleware(authService)
-	roomHandler := handler.NewRoomHandler(roomService, authMiddleware)
+	roomHandler := handler.NewRoomHandler(roomService, authMiddleware, hub)
 	messageHandler := handler.NewMessageHandler(messageService, roomService, authMiddleware)
 	notificationHandler := handler.NewNotificationHandler(notificationService, authMiddleware)
-	userHandler := handler.NewUserHandler(userRepo, roomService, authMiddleware)
+	userHandler := handler.NewUserHandler(userRepo, roomService, authMiddleware, hub)
 	wsHandler := websocket.NewHandler(hub, authService, roomService, presenceService, log)
 	log.Info("Handlers initialized")
 

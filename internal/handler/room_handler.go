@@ -14,13 +14,15 @@ import (
 type RoomHandler struct {
 	roomService service.RoomService
 	authMw      *middleware.AuthMiddleware
+	hub         HubInterface
 }
 
 // NewRoomHandler creates a new room handler
-func NewRoomHandler(roomService service.RoomService, authMw *middleware.AuthMiddleware) *RoomHandler {
+func NewRoomHandler(roomService service.RoomService, authMw *middleware.AuthMiddleware, hub HubInterface) *RoomHandler {
 	return &RoomHandler{
 		roomService: roomService,
 		authMw:      authMw,
+		hub:         hub,
 	}
 }
 
@@ -116,6 +118,9 @@ func (h *RoomHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, err)
 		return
 	}
+
+	// Notify WebSocket hub about the new room
+	h.hub.NotifyRoomCreated(room.ID, room.Type, room.Name, room.Members)
 
 	// Return room data
 	roomResp := RoomResponse{

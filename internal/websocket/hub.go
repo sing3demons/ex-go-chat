@@ -251,3 +251,35 @@ func (h *Hub) broadcastPresenceUpdate(userID string, online bool) {
 		}
 	}
 }
+
+// NotifyRoomCreated notifies users about a new room and subscribes them to it
+func (h *Hub) NotifyRoomCreated(roomID, roomType, name string, members []string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	payload := RoomCreatedPayload{
+		RoomID:   roomID,
+		RoomType: roomType,
+		Name:     name,
+		Members:  members,
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+
+	msg := &WSMessage{
+		Type:    MessageTypeRoomCreated,
+		RoomID:  roomID,
+		Payload: payloadBytes,
+	}
+
+	// Notify all members and subscribe them to the room
+	for _, memberID := range members {
+		if conn, exists := h.connections[memberID]; exists {
+			// Subscribe connection to the new room
+			conn.SubscribeToRoom(roomID)
+			// Send notification
+			conn.SendMessage(msg)
+			h.log.Infof("User %s subscribed to new room %s", memberID, roomID)
+		}
+	}
+}

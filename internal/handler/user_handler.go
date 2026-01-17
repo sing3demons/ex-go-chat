@@ -16,14 +16,21 @@ type UserHandler struct {
 	userRepo    repository.UserRepository
 	roomService service.RoomService
 	authMw      *middleware.AuthMiddleware
+	hub         HubInterface
+}
+
+// HubInterface defines the methods we need from the WebSocket hub
+type HubInterface interface {
+	NotifyRoomCreated(roomID, roomType, name string, members []string)
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(userRepo repository.UserRepository, roomService service.RoomService, authMw *middleware.AuthMiddleware) *UserHandler {
+func NewUserHandler(userRepo repository.UserRepository, roomService service.RoomService, authMw *middleware.AuthMiddleware, hub HubInterface) *UserHandler {
 	return &UserHandler{
 		userRepo:    userRepo,
 		roomService: roomService,
 		authMw:      authMw,
+		hub:         hub,
 	}
 }
 
@@ -130,6 +137,10 @@ func (h *UserHandler) CreateDirectChat(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, err)
 		return
 	}
+
+	// Notify WebSocket hub about the new room (only if it's actually new)
+	// The room service returns existing room if it already exists
+	h.hub.NotifyRoomCreated(room.ID, room.Type, targetUser.Username, room.Members)
 
 	// Return room data
 	roomResp := RoomResponse{

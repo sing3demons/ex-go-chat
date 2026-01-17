@@ -41,7 +41,7 @@ type LogEntry struct {
 	SpanID    string `json:"span_id,omitempty"`  // step ย่อย (เช่น db call)
 	ParentID  string `json:"parent_id,omitempty"`
 	Message   string `json:"message"`
-	Operation string `json:"operation,omitempty"` //login,register
+	UseCase string `json:"usecase,omitempty"` //login,register
 
 	Action            string `json:"action,omitempty"`
 	ActionDescription string `json:"action_description,omitempty"`

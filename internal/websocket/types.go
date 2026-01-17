@@ -15,6 +15,7 @@ const (
 	MessageTypeDelete    MessageType = "delete"
 	MessageTypeHeartbeat MessageType = "heartbeat"
 	MessageTypeJoinRoom  MessageType = "join_room"
+	MessageTypeRoomCreated MessageType = "room_created"
 	MessageTypeError     MessageType = "error"
 )
 
@@ -31,6 +32,7 @@ type ChatMessagePayload struct {
 	Content   string `json:"content"`
 	SenderID  string `json:"senderId"`
 	Timestamp string `json:"timestamp"`
+	TempID    string `json:"tempId,omitempty"` // For optimistic updates
 }
 
 // TypingPayload represents a typing indicator payload
@@ -71,4 +73,12 @@ type DeletePayload struct {
 type ErrorPayload struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// RoomCreatedPayload represents a room creation notification payload
+type RoomCreatedPayload struct {
+	RoomID   string   `json:"roomId"`
+	RoomType string   `json:"roomType"`
+	Name     string   `json:"name,omitempty"`
+	Members  []string `json:"members"`
 }

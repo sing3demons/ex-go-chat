@@ -101,6 +101,7 @@ func (h *WSMessageHandler) handleChatMessage(ctx context.Context, conn *Connecti
 		Content:   message.Content,
 		SenderID:  message.SenderID,
 		Timestamp: message.CreatedAt.Format(time.RFC3339),
+		TempID:    payload.TempID, // Include tempId for optimistic update confirmation
 	}
 	payloadBytes, _ := json.Marshal(broadcastPayload)
 
@@ -161,7 +162,8 @@ func (h *WSMessageHandler) handleReadStatus(ctx context.Context, conn *Connectio
 
 	// Update read status in database
 	if err := h.messageService.UpdateReadStatus(ctx, payload.MessageID, conn.UserID); err != nil {
-		h.log.Errorf("Failed to update read status: %v", err)
+		// Don't log as error if message not found - it might be a timing issue
+		h.log.Warnf("Could not update read status for message %s: %v", payload.MessageID, err)
 		return
 	}
 
@@ -198,7 +200,8 @@ func (h *WSMessageHandler) handleDeliveredStatus(ctx context.Context, conn *Conn
 
 	// Update delivered status in database
 	if err := h.messageService.UpdateDeliveryStatus(ctx, payload.MessageID, conn.UserID); err != nil {
-		h.log.Errorf("Failed to update delivered status: %v", err)
+		// Don't log as error if message not found - it might be a timing issue
+		h.log.Warnf("Could not update delivered status for message %s: %v", payload.MessageID, err)
 		return
 	}
 
@@ -343,20 +346,25 @@ func (h *WSMessageHandler) createNotificationsForOfflineMembers(ctx context.Cont
 		return
 	}
 
-	// Create notification for each offline member (except sender)
+	// Create notification for each member (except sender)
 	for _, memberID := range room.Members {
 		if memberID == senderID {
 			continue
 		}
 
-		// Check if member is online
-		if h.presenceService.IsOnline(ctx, memberID) {
-			continue
+		// Check if member is online AND subscribed to this room
+		isOnlineAndSubscribed := false
+		if conn, exists := h.hub.GetConnection(memberID); exists {
+			isOnlineAndSubscribed = conn.IsSubscribedToRoom(roomID)
 		}
 
-		// Create notification for offline member
-		if err := h.notificationService.CreateNotification(ctx, memberID, roomID, messageID, "message"); err != nil {
-			h.log.Errorf("Failed to create notification for user %s: %v", memberID, err)
+		// Create notification if user is not online or not subscribed to this room
+		if !isOnlineAndSubscribed {
+			if err := h.notificationService.CreateNotification(ctx, memberID, roomID, messageID, "message"); err != nil {
+				h.log.Errorf("Failed to create notification for user %s: %v", memberID, err)
+			} else {
+				h.log.Infof("Created notification for user %s in room %s", memberID, roomID)
+			}
 		}
 	}
 }
