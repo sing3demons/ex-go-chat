@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"realtime-chat-system/internal/middleware"
 	"realtime-chat-system/internal/service"
+	"realtime-chat-system/pkg/kp"
 	"realtime-chat-system/pkg/response"
 )
 
@@ -28,14 +30,14 @@ func NewMessageHandler(messageService service.MessageService, roomService servic
 
 // MessageResponse represents a message in API responses
 type MessageResponse struct {
-	ID        string                  `json:"id"`
-	RoomID    string                  `json:"roomId"`
-	SenderID  string                  `json:"senderId"`
-	Content   string                  `json:"content"`
-	CreatedAt string                  `json:"createdAt"`
-	UpdatedAt string                  `json:"updatedAt"`
-	EditedAt  *string                 `json:"editedAt,omitempty"`
-	Deleted   bool                    `json:"deleted"`
+	ID        string                    `json:"id"`
+	RoomID    string                    `json:"roomId"`
+	SenderID  string                    `json:"senderId"`
+	Content   string                    `json:"content"`
+	CreatedAt string                    `json:"createdAt"`
+	UpdatedAt string                    `json:"updatedAt"`
+	EditedAt  *string                   `json:"editedAt,omitempty"`
+	Deleted   bool                      `json:"deleted"`
 	Status    map[string]StatusResponse `json:"status,omitempty"`
 }
 
@@ -48,35 +50,64 @@ type StatusResponse struct {
 }
 
 // GetMessages handles GET /api/rooms/:id/messages - get chat history
-func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
+func (h *MessageHandler) GetMessages(ctx *kp.Ctx) {
+	ctx.L("get_messages")
+	var customError *kp.Error
 	// Only accept GET method
-	if r.Method != http.MethodGet {
-		response.BadRequest(w, "Method not allowed")
-		return
-	}
+	// if r.Method != http.MethodGet {
+	// 	response.BadRequest(w, "Method not allowed")
+	// 	return
+	// }
 
 	// Get user ID from context
-	userID, ok := middleware.GetUserID(r.Context())
+	userID, ok := middleware.GetUserID(ctx)
 	if !ok {
-		response.Unauthorized(w, "User not authenticated")
+		// response.Unauthorized(w, "User not authenticated")
+		customError = &kp.Error{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "unauthorized",
+			Err:        nil,
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Extract room ID from path
-	roomID := extractRoomIDFromPath(r.URL.Path)
+	// roomID := extractRoomIDFromPath(r.URL.Path)
+	roomID := ctx.Params("roomId")
 	if roomID == "" {
-		response.BadRequest(w, "Invalid room ID")
+		// response.BadRequest(w, "Invalid room ID")
+		customError = &kp.Error{
+			StatusCode: http.StatusBadRequest,
+			Message:    "bad_request",
+			Err:        errors.New("Invalid room ID"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Check if user is a member of the room
-	isMember, err := h.roomService.IsMember(r.Context(), roomID, userID)
+	isMember, err := h.roomService.IsMember(ctx, roomID, userID)
 	if err != nil {
-		response.Error(w, err)
+		// response.Error(w, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "internal_server",
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 	if !isMember {
-		response.Forbidden(w, "You are not a member of this room")
+		// response.Forbidden(w, "You are not a member of this room")
+		customError = &kp.Error{
+			StatusCode: http.StatusForbidden,
+			Message:    "forbidden",
+			Err:        errors.New("You are not a member of this room"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -84,22 +115,30 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	limit := 50 // default
 	offset := 0 // default
 
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+	if limitStr := ctx.Query("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			limit = l
 		}
 	}
 
-	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+	if offsetStr := ctx.Query("offset"); offsetStr != "" {
 		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 			offset = o
 		}
 	}
 
 	// Get messages
-	messages, err := h.messageService.GetMessages(r.Context(), roomID, limit, offset)
+	messages, err := h.messageService.GetMessages(ctx, roomID, limit, offset)
 	if err != nil {
-		response.Error(w, err)
+		// response.Error(w, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "internal_server",
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -145,24 +184,31 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		messageResponses[i] = msgResp
 	}
 
-	response.Success(w, messageResponses, "Messages retrieved successfully")
+	// response.Success(w, messageResponses, "Messages retrieved successfully")
+	ctx.JSON(http.StatusOK, response.SuccessResponse{
+		Data:    messageResponses,
+		Success: true,
+		Message: "Messages retrieved successfully",
+	})
 }
 
 // RegisterRoutes registers message routes
-func (h *MessageHandler) RegisterRoutes(mux *http.ServeMux) {
+func (h *MessageHandler) RegisterRoutes(app kp.IMicroservice) {
 	// Use a pattern that matches /api/rooms/{id}/messages
-	mux.HandleFunc("/api/messages/room/", h.authMw.Authenticate(h.handleRoomMessages))
+	// mux.HandleFunc("/api/messages/room/", h.authMw.Authenticate(h.handleRoomMessages))
+	app.GET("/api/rooms/{roomId}/messages", h.GetMessages, h.authMw.Authenticate)
+	app.GET("/api/messages/room/{roomId}", h.GetMessages, h.authMw.Authenticate)
 }
 
 // handleRoomMessages routes message-related endpoints
 func (h *MessageHandler) handleRoomMessages(w http.ResponseWriter, r *http.Request) {
-	h.GetMessages(w, r)
+	// h.GetMessages(w, r)
 }
 
 // extractRoomIDFromPath extracts room ID from URL path like /api/messages/room/:id
 func extractRoomIDFromPath(path string) string {
 	// Remove prefix /api/messages/room/
 	path = strings.TrimPrefix(path, "/api/messages/room/")
-	
+
 	return path
 }

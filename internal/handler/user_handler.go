@@ -1,13 +1,14 @@
 package handler
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"realtime-chat-system/internal/middleware"
 	"realtime-chat-system/internal/repository"
 	"realtime-chat-system/internal/service"
+	"realtime-chat-system/pkg/kp"
 	"realtime-chat-system/pkg/response"
 )
 
@@ -46,30 +47,46 @@ type CreateDirectChatRequest struct {
 }
 
 // SearchUsers handles GET /api/users/search?q=query - search users by username
-func (h *UserHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.BadRequest(w, "Method not allowed")
-		return
-	}
+func (h *UserHandler) SearchUsers(ctx *kp.Ctx) {
+	ctx.L("search_users")
+	var customError *kp.Error
+	// ctx.JSONError()
 
 	// Get current user ID
-	currentUserID, ok := middleware.GetUserID(r.Context())
+	currentUserID, ok := middleware.GetUserID(ctx)
 	if !ok {
-		response.Unauthorized(w, "User not authenticated")
+		// response.Unauthorized(w, "User not authenticated")
+		customError = &kp.Error{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "unauthorized",
+			Err:        errors.New("User not authenticated"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Get search query
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	// query := strings.TrimSpace(r.URL.Query().Get("q"))
+	query := ctx.Query("q")
 	if query == "" {
-		response.Success(w, []UserSearchResponse{}, "No query provided")
+		ctx.Log.AddMetadata("ErrorCause", "No query provided")
+		ctx.JSON(http.StatusOK, []UserSearchResponse{})
+
 		return
 	}
 
 	// Search users
-	users, err := h.userRepo.SearchByUsername(r.Context(), query, 10)
+	users, err := h.userRepo.SearchByUsername(ctx, query, 10)
 	if err != nil {
-		response.Error(w, err)
+		// response.Error(w, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "internal_server",
+				StatusCode: http.StatusInternalServerError,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -88,53 +105,103 @@ func (h *UserHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		results = []UserSearchResponse{}
 	}
 
-	response.Success(w, results, "Users found")
+	// ctx.JSON(http.StatusOK, results)
+	ctx.JSON(http.StatusOK, response.SuccessResponse{
+		Data:    results,
+		Success: true,
+		Message: "Users retrieved successfully",
+	})
 }
 
 // CreateDirectChat handles POST /api/users/chat - create or get direct chat with user
-func (h *UserHandler) CreateDirectChat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		response.BadRequest(w, "Method not allowed")
-		return
-	}
+func (h *UserHandler) CreateDirectChat(ctx *kp.Ctx) {
+	ctx.L("create_direct_chat")
+	var customError *kp.Error
+	// ctx.JSONError()
+	// if r.Method != http.MethodPost {
+	// 	response.BadRequest(w, "Method not allowed")
+	// 	return
+	// }
 
 	// Get current user ID
-	currentUserID, ok := middleware.GetUserID(r.Context())
+	currentUserID, ok := middleware.GetUserID(ctx)
 	if !ok {
-		response.Unauthorized(w, "User not authenticated")
+		// response.Unauthorized(w, "User not authenticated")
+		customError = &kp.Error{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "unauthorized",
+			Err:        errors.New("User not authenticated"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Parse request
 	var req CreateDirectChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.BadRequest(w, "Invalid request body")
+	if err := ctx.Bind(&req); err != nil {
+		// response.BadRequest(w, "Invalid request body")
+		customError = &kp.Error{
+			StatusCode: http.StatusBadRequest,
+			Message:    "invalid_request",
+			Err:        err,
+		}
+		ctx.JSONError(customError)
 		return
 	}
+	// if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// 	response.BadRequest(w, "Invalid request body")
+	// 	return
+	// }
 
 	username := strings.TrimSpace(req.Username)
 	if username == "" {
-		response.BadRequest(w, "Username is required")
+		customError = &kp.Error{
+			StatusCode: http.StatusBadRequest,
+			Message:    "invalid_request",
+			Err:        errors.New("Username is required"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Find target user by username
-	targetUser, err := h.userRepo.FindByUsername(r.Context(), username)
+	targetUser, err := h.userRepo.FindByUsername(ctx, username)
 	if err != nil {
-		response.NotFound(w, "User not found")
+		// response.NotFound(w, "User not found")
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "internal_server",
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Cannot chat with yourself
 	if targetUser.ID == currentUserID {
-		response.BadRequest(w, "Cannot create chat with yourself")
+		// response.BadRequest(w, "Cannot create chat with yourself")
+		customError = &kp.Error{
+			StatusCode: http.StatusBadRequest,
+			Message:    "invalid_request",
+			Err:        errors.New("Cannot create chat with yourself"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Create or get existing direct room
-	room, err := h.roomService.CreateDirectRoom(r.Context(), currentUserID, targetUser.ID)
+	room, err := h.roomService.CreateDirectRoom(ctx, currentUserID, targetUser.ID)
 	if err != nil {
-		response.Error(w, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "internal_server",
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -152,11 +219,16 @@ func (h *UserHandler) CreateDirectChat(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: room.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
-	response.Success(w, roomResp, "Direct chat created")
+	// ctx.JSON(http.StatusOK, roomResp)
+	ctx.JSON(http.StatusOK, response.SuccessResponse{
+		Data:    roomResp,
+		Success: true,
+		Message: "Direct chat created successfully",
+	})
 }
 
 // RegisterRoutes registers user routes
-func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/users/search", h.authMw.Authenticate(h.SearchUsers))
-	mux.HandleFunc("/api/users/chat", h.authMw.Authenticate(h.CreateDirectChat))
+func (h *UserHandler) RegisterRoutes(app kp.IMicroservice) {
+	app.GET("/api/users/search", h.SearchUsers, h.authMw.Authenticate)
+	app.POST("/api/users/chat", h.CreateDirectChat, h.authMw.Authenticate)
 }

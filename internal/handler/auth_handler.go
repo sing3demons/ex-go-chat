@@ -1,10 +1,12 @@
 package handler
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
 
 	"realtime-chat-system/internal/service"
+	"realtime-chat-system/pkg/kp"
+	"realtime-chat-system/pkg/logger"
 	"realtime-chat-system/pkg/response"
 )
 
@@ -47,24 +49,39 @@ type UserResponse struct {
 }
 
 // Register handles user registration
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Register(ctx *kp.Ctx) {
+	ctx.L("register")
+	var customError *kp.Error
 	// Only accept POST method
-	if r.Method != http.MethodPost {
-		response.BadRequest(w, "Method not allowed")
-		return
-	}
+	// if r.Method != http.MethodPost {
+	// 	response.BadRequest(w, "Method not allowed")
+	// 	return
+	// }
 
 	// Parse request body
 	var req RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.BadRequest(w, "Invalid request body")
+	if err := ctx.Bind(&req); err != nil {
+		customError = &kp.Error{
+			StatusCode: http.StatusBadRequest,
+			Message:    "invalid_request",
+			Err:        err,
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Register user
-	user, _, err := h.authService.Register(r.Context(), req.Username, req.Email, req.Password)
+	user, _, err := h.authService.Register(ctx, req.Username, req.Email, req.Password)
 	if err != nil {
-		response.Error(w, err)
+		// response.Error(w, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "internal_server",
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -76,28 +93,52 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
-	response.Created(w, userResp, "User registered successfully")
+	// response.Created(w, userResp, "User registered successfully")
+	ctx.JSON(http.StatusCreated, response.SuccessResponse{Data: userResp, Success: true})
 }
 
 // Login handles user login
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Login(ctx *kp.Ctx) {
+	maskingBody := []logger.MaskRule{{
+		Field: "body.identifier",
+		Type:  logger.MaskFirst,
+	}, {
+		Field: "body.password",
+		Type:  logger.MaskPassword,
+	}}
+	ctx.L("login", maskingBody...)
+	var customError *kp.Error
+
 	// Only accept POST method
-	if r.Method != http.MethodPost {
-		response.BadRequest(w, "Method not allowed")
-		return
-	}
+	// if ctx.Request.Method != http.MethodPost {
+	// 	response.BadRequest(ctx.Writer, "Method not allowed")
+	// 	return
+	// }
 
 	// Parse request body
 	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.BadRequest(w, "Invalid request body")
+	if err := ctx.Bind(&req); err != nil {
+		customError = &kp.Error{
+			StatusCode: http.StatusBadRequest,
+			Message:    "invalid_request",
+			Err:        err,
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// Login user
-	token, err := h.authService.Login(r.Context(), req.Identifier, req.Password)
+	token, err := h.authService.Login(ctx, req.Identifier, req.Password)
 	if err != nil {
-		response.Error(w, err)
+		// response.Error(w, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "internal_server",
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -106,11 +147,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Token: token,
 	}
 
-	response.Success(w, authResp, "Login successful")
+	// response.Success(w, authResp, "Login successful")
+	ctx.JSON(http.StatusOK, response.SuccessResponse{Data: authResp, Success: true})
 }
 
 // RegisterRoutes registers auth routes
-func (h *AuthHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/auth/register", h.Register)
-	mux.HandleFunc("/api/auth/login", h.Login)
+func (h *AuthHandler) RegisterRoutes(app kp.IMicroservice) {
+	app.GET("/api/auth/register", h.Register)
+	app.POST("/api/auth/login", h.Login)
 }

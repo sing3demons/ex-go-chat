@@ -3,9 +3,11 @@ package websocket
 import (
 	"net/http"
 
-	"github.com/gorilla/websocket"
 	"realtime-chat-system/internal/service"
+	"realtime-chat-system/pkg/kp"
 	"realtime-chat-system/pkg/logger"
+
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
@@ -38,25 +40,26 @@ func NewHandler(hub *Hub, authService service.AuthService, roomService service.R
 }
 
 // ServeWS handles WebSocket requests
-func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ServeWS(ctx *kp.Ctx) {
 	// Get token from query parameter
-	token := r.URL.Query().Get("token")
+	// token := ctx.Request().URL.Query().Get("token")
+	token := ctx.Query("token")
 	if token == "" {
 		h.log.Error("WebSocket connection rejected: missing token")
-		http.Error(w, "Missing token", http.StatusUnauthorized)
+		ctx.JSON(http.StatusUnauthorized, "Missing token")
 		return
 	}
 
 	// Validate token
-	claims, err := h.authService.ValidateToken(r.Context(), token)
+	claims, err := h.authService.ValidateToken(ctx, token)
 	if err != nil {
 		h.log.Errorf("WebSocket connection rejected: invalid token - %v", err)
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		ctx.JSON(http.StatusUnauthorized, "Invalid token")
 		return
 	}
 
 	// Upgrade connection
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(ctx.Res, ctx.Req, nil)
 	if err != nil {
 		h.log.Errorf("Failed to upgrade WebSocket connection: %v", err)
 		return
@@ -66,7 +69,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	wsConn := NewConnection(claims.UserID, claims.Username, conn, h.log)
 
 	// Subscribe to user's rooms
-	rooms, err := h.roomService.GetUserRooms(r.Context(), claims.UserID)
+	rooms, err := h.roomService.GetUserRooms(ctx, claims.UserID)
 	if err != nil {
 		h.log.Errorf("Failed to get user rooms: %v", err)
 	} else {
@@ -80,7 +83,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	h.hub.Register <- wsConn
 
 	// Mark user as online
-	h.presenceService.SetOnline(r.Context(), claims.UserID)
+	h.presenceService.SetOnline(ctx, claims.UserID)
 
 	// Start write pump in goroutine
 	go wsConn.WritePump()

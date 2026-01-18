@@ -3,6 +3,7 @@ package logger
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -15,6 +16,7 @@ type MaskType string
 
 const (
 	MaskFull       MaskType = "full"
+	MaskPassword   MaskType = "password"
 	MaskEmail      MaskType = "email"
 	MaskPhone      MaskType = "phone"
 	MaskFirst      MaskType = "first"
@@ -61,18 +63,20 @@ func (m *masker) Mask(value string, rule MaskRule) string {
 	switch rule.Type {
 	case MaskFull:
 		return maskFull(value, m.pattern)
+	case MaskPassword:
+		return maskPassword(value, m.pattern)
 
 	case MaskEmail:
-		return maskEmail(value)
+		return maskEmail(value, m.pattern)
 
 	case MaskPhone:
-		return maskPhone(value)
+		return maskPhone(value, m.pattern)
 
 	case MaskFirst:
-		return maskFirst(value)
+		return maskFirst(value, m.pattern)
 
 	case MaskLast:
-		return maskLast(value)
+		return maskLast(value, m.pattern)
 
 	case MaskPartial:
 		return maskPartial(value, m.pattern, rule.Prefix, rule.Suffix)
@@ -100,10 +104,14 @@ func maskFull(value, pattern string) string {
 	if pattern != "" {
 		return pattern
 	}
-	return strings.Repeat("*", len(value))
+	return strings.Repeat(pattern, len(value))
 }
 
-func maskEmail(email string) string {
+func maskPassword(value, pattern string) string {
+	return strings.Repeat(pattern, 10)
+}
+
+func maskEmail(email, pattern string) string {
 	parts := strings.Split(email, "@")
 	if len(parts) != 2 {
 		return maskFull(email, "")
@@ -113,43 +121,44 @@ func maskEmail(email string) string {
 	domain := parts[1]
 
 	if len(name) <= 2 {
-		return "**@" + domain
+		// return 	"**@" + domain
+		return fmt.Sprintf("%s%s@", pattern, pattern)
 	}
 
 	return name[:2] +
-		strings.Repeat("*", len(name)-2) +
+		strings.Repeat(pattern, len(name)-2) +
 		"@" + domain
 }
 
-func maskPhone(phone string) string {
+func maskPhone(phone, pattern string) string {
 	if len(phone) < 7 {
 		return maskFull(phone, "")
 	}
 
 	return phone[:3] +
-		strings.Repeat("*", len(phone)-6) +
+		strings.Repeat(pattern, len(phone)-6) +
 		phone[len(phone)-3:]
 }
 
-func maskFirst(value string) string {
+func maskFirst(value, pattern string) string {
 	if len(value) <= 1 {
-		return "*"
+		return pattern
 	}
-	return value[:1] + strings.Repeat("*", len(value)-1)
+	return value[:1] + strings.Repeat(pattern, len(value)-1)
 }
 
-func maskLast(value string) string {
+func maskLast(value, pattern string) string {
 	if len(value) <= 1 {
-		return "*"
+		return pattern
 	}
-	return strings.Repeat("*", len(value)-1) + value[len(value)-1:]
+	return strings.Repeat(pattern, len(value)-1) + value[len(value)-1:]
 }
 
 func maskPartial(value, pattern string, prefix, suffix int) string {
 	l := len(value)
 
 	if prefix+suffix >= l {
-		return strings.Repeat("*", l)
+		return strings.Repeat(pattern, l)
 	}
 
 	maskChar := pattern

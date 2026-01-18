@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"realtime-chat-system/pkg/logAction"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,15 +29,15 @@ type LoggerAction struct {
 }
 
 type LogEntry struct {
-	Timestamp string `json:"timestamp"`
-	Level     string `json:"level"`
-	Type      string `json:"type,omitempty"`
-	Service   string `json:"service"`
-	TraceID   string `json:"trace_id,omitempty"` //request ทั้งเส้น
-	SpanID    string `json:"span_id,omitempty"`  // step ย่อย (เช่น db call)
-	ParentID  string `json:"parent_id,omitempty"`
-	Message   string `json:"message"`
-	UseCase   string `json:"usecase,omitempty"` //login,register
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Type      string    `json:"type,omitempty"`
+	Service   string    `json:"service"`
+	TraceID   string    `json:"trace_id,omitempty"` //request ทั้งเส้น
+	SpanID    string    `json:"span_id,omitempty"`  // step ย่อย (เช่น db call)
+	ParentID  string    `json:"parent_id,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	UseCase   string    `json:"usecase,omitempty"` //login,register
 
 	Action            string `json:"action,omitempty"`
 	ActionDescription string `json:"action_description,omitempty"`
@@ -88,24 +89,38 @@ func NewFileLogger(config LoggerConfig) (*FileLogger, error) {
 
 	// Initialize summary log file
 	if config.Summary.File && config.Summary.Path != "" {
-		if err := os.MkdirAll(filepath.Dir(config.Summary.Path), 0755); err != nil {
+		summaryPath := config.Summary.Path
+		// Check if path is a directory, append default filename with date
+		if filepath.Ext(summaryPath) == "" || summaryPath[len(summaryPath)-1] == '/' || summaryPath[len(summaryPath)-1] == filepath.Separator {
+			dateStr := time.Now().Format("2006-01-02")
+			summaryPath = filepath.Join(summaryPath, fmt.Sprintf("summary-%s.log", dateStr))
+		}
+		if err := os.MkdirAll(filepath.Dir(summaryPath), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create summary log directory: %w", err)
 		}
-		fl.summaryFile, err = os.OpenFile(config.Summary.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		fl.summaryFile, err = os.OpenFile(summaryPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open summary log file: %w", err)
 		}
+		fl.config.Summary.Path = summaryPath
 	}
 
 	// Initialize detail log file
 	if config.Detail.File && config.Detail.Path != "" {
-		if err := os.MkdirAll(filepath.Dir(config.Detail.Path), 0755); err != nil {
+		detailPath := config.Detail.Path
+		// Check if path is a directory, append default filename with date
+		if filepath.Ext(detailPath) == "" || detailPath[len(detailPath)-1] == '/' || detailPath[len(detailPath)-1] == filepath.Separator {
+			dateStr := time.Now().Format("2006-01-02")
+			detailPath = filepath.Join(detailPath, fmt.Sprintf("detail-%s.log", dateStr))
+		}
+		if err := os.MkdirAll(filepath.Dir(detailPath), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create detail log directory: %w", err)
 		}
-		fl.detailFile, err = os.OpenFile(config.Detail.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		fl.detailFile, err = os.OpenFile(detailPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open detail log file: %w", err)
 		}
+		fl.config.Detail.Path = detailPath
 	}
 
 	return fl, nil
@@ -327,42 +342,184 @@ func (l *CustomLogger) maskData(data any, rules []MaskRule) any {
 		return data
 	}
 
-	// Convert to map for easier manipulation
-	var dataMap map[string]any
-
+	// Convert to JSON and back to get a clean map[string]any structure
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
 		return data
 	}
 
+	var dataMap map[string]any
 	if err := json.Unmarshal(jsonBytes, &dataMap); err != nil {
 		return data
 	}
 
+	// Apply masking rules to the map
+	l.applyMaskingToMap(dataMap, rules)
+
+	return dataMap
+}
+
+// applyMaskingToMap applies masking rules to a map structure (case-insensitive)
+func (l *CustomLogger) applyMaskingToMap(dataMap map[string]any, rules []MaskRule) {
 	for _, rule := range rules {
-		if val, exists := dataMap[rule.Field]; exists {
-			if rule.IsArray {
-				// apply masking to each element in the array
-				if arr, ok := val.([]any); ok {
-					maskedArr := make([]any, len(arr))
-					for i, item := range arr {
-						if str, ok := item.(string); ok {
-							maskedArr[i] = l.masker.Mask(str, rule)
-						} else {
-							maskedArr[i] = item
-						}
-					}
-					dataMap[rule.Field] = maskedArr
+		if rule.IsArray {
+			// For array rules, use LookupMany to find all matching values
+			data, ok := LookupMany(rule.Field, dataMap)
+			if ok {
+				// Update each found value by traversing and modifying the original structure
+				for _, val := range data {
+					maskedVal := l.maskValue(val, rule)
+					l.updateMapValue(dataMap, rule.Field, val, maskedVal)
 				}
-			} else {
-				if str, ok := val.(string); ok {
-					dataMap[rule.Field] = l.masker.Mask(str, rule)
-				}
+			}
+		} else {
+			// For single value rules, use LookupOne (case-insensitive)
+			data, ok := LookupOne(rule.Field, dataMap)
+			if ok {
+				maskedVal := l.maskValue(data, rule)
+				l.updateMapValue(dataMap, rule.Field, data, maskedVal)
 			}
 		}
 	}
+}
 
-	return dataMap
+// updateMapValue updates a value in the map at a given path (case-insensitive)
+func (l *CustomLogger) updateMapValue(dataMap map[string]any, path string, oldVal any, newVal any) {
+	parts := strings.Split(path, ".")
+	if len(parts) == 0 {
+		return
+	}
+
+	// Navigate to the parent map
+	currentMap := dataMap
+	for i := 0; i < len(parts)-1; i++ {
+		part := parts[i]
+		// Try exact match first, then case-insensitive
+		if nextMap, exists := currentMap[part].(map[string]any); exists {
+			currentMap = nextMap
+		} else if nextMap, exists := l.findMapCaseInsensitive(currentMap, part); exists {
+			currentMap = nextMap
+		} else if arr, exists := currentMap[part].([]any); exists {
+			// Handle array elements
+			for _, item := range arr {
+				if itemMap, ok := item.(map[string]any); ok {
+					l.updateMapValue(itemMap, strings.Join(parts[i+1:], "."), oldVal, newVal)
+				}
+			}
+			return
+		} else if arr, exists := l.findArrayCaseInsensitive(currentMap, part); exists {
+			// Try case-insensitive array lookup
+			for _, item := range arr {
+				if itemMap, ok := item.(map[string]any); ok {
+					l.updateMapValue(itemMap, strings.Join(parts[i+1:], "."), oldVal, newVal)
+				}
+			}
+			return
+		} else {
+			return // Path doesn't exist
+		}
+	}
+
+	// Update the final value - with case-insensitive matching
+	lastPart := parts[len(parts)-1]
+	actualKey := l.findKeyInMap(currentMap, lastPart)
+	if actualKey == "" {
+		return // Key not found
+	}
+
+	if val, exists := currentMap[actualKey]; exists {
+		if arr, ok := val.([]any); ok {
+			// If it's an array, update matching elements
+			for i, item := range arr {
+				if l.valuesEqual(item, oldVal) {
+					arr[i] = newVal
+				}
+			}
+			currentMap[actualKey] = arr
+		} else if l.valuesEqual(val, oldVal) {
+			// If it's a single value, update if it matches
+			currentMap[actualKey] = newVal
+		}
+	}
+}
+
+// findKeyInMap finds a key in a map (case-insensitive)
+func (l *CustomLogger) findKeyInMap(m map[string]any, key string) string {
+	// Try exact match first
+	if _, exists := m[key]; exists {
+		return key
+	}
+
+	// Try case-insensitive match
+	lowerKey := strings.ToLower(key)
+	for k := range m {
+		if strings.ToLower(k) == lowerKey {
+			return k
+		}
+	}
+
+	return ""
+}
+
+// findMapCaseInsensitive finds a nested map with case-insensitive key
+func (l *CustomLogger) findMapCaseInsensitive(m map[string]any, key string) (map[string]any, bool) {
+	lowerKey := strings.ToLower(key)
+	for k, v := range m {
+		if strings.ToLower(k) == lowerKey {
+			if nextMap, ok := v.(map[string]any); ok {
+				return nextMap, true
+			}
+			break
+		}
+	}
+	return nil, false
+}
+
+// findArrayCaseInsensitive finds an array with case-insensitive key
+func (l *CustomLogger) findArrayCaseInsensitive(m map[string]any, key string) ([]any, bool) {
+	lowerKey := strings.ToLower(key)
+	for k, v := range m {
+		if strings.ToLower(k) == lowerKey {
+			if arr, ok := v.([]any); ok {
+				return arr, true
+			}
+			break
+		}
+	}
+	return nil, false
+}
+
+// valuesEqual compares two values for equality
+func (l *CustomLogger) valuesEqual(a, b any) bool {
+	switch av := a.(type) {
+	case string:
+		if bv, ok := b.(string); ok {
+			return av == bv
+		}
+	case float64:
+		if bv, ok := b.(float64); ok {
+			return av == bv
+		}
+	case bool:
+		if bv, ok := b.(bool); ok {
+			return av == bv
+		}
+	}
+	return false
+}
+
+// maskValue applies masking to a single value (string, number, etc)
+func (l *CustomLogger) maskValue(val any, rule MaskRule) any {
+	switch v := val.(type) {
+	case string:
+		return l.masker.Mask(v, rule)
+	case float64:
+		// Try to mask as string if it looks like a phone number or similar
+		return l.masker.Mask(fmt.Sprintf("%v", v), rule)
+
+	default:
+		return val
+	}
 }
 
 func (l *CustomLogger) log(level string, action logAction.LoggerAction, data any, maskingData ...MaskRule) {
@@ -376,9 +533,10 @@ func (l *CustomLogger) log(level string, action logAction.LoggerAction, data any
 		maskedData = data
 	}
 	logMsg := LogEntry{
-		Timestamp:         time.Now().String(),
+		Timestamp:         time.Now(),
 		Level:             level,
 		Type:              detail,
+		UseCase:          l.logEntry.UseCase,
 		Service:           l.logEntry.Service,
 		TraceID:           l.logEntry.TraceID,
 		SpanID:            l.logEntry.SpanID,
@@ -469,8 +627,9 @@ func (l *CustomLogger) Flush(code int, msg string) {
 		panic("Flush called before Init")
 	}
 	logMsg := LogEntry{
-		Timestamp:    time.Now().String(),
+		Timestamp:    time.Now(),
 		Level:        "INFO",
+		UseCase:      l.logEntry.UseCase,
 		Type:         summary,
 		Service:      l.logEntry.Service,
 		TraceID:      l.logEntry.TraceID,
@@ -498,9 +657,10 @@ func (l *CustomLogger) FlushError(code int, msg string) {
 		panic("FlushError called before Init")
 	}
 	logMsg := LogEntry{
-		Timestamp:    time.Now().String(),
+		Timestamp:    time.Now(),
 		Level:        "ERROR",
 		Type:         summary,
+		UseCase:      l.logEntry.UseCase,
 		Service:      l.logEntry.Service,
 		TraceID:      l.logEntry.TraceID,
 		SpanID:       l.logEntry.SpanID,

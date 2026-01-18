@@ -31,8 +31,8 @@ func NewAuthMiddleware(authService service.AuthService) *AuthMiddleware {
 }
 
 // Authenticate is a middleware that validates JWT token
-func (m *AuthMiddleware) Authenticate(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -59,7 +59,7 @@ func (m *AuthMiddleware) Authenticate(next http.HandlerFunc) http.HandlerFunc {
 		// Add claims to context
 		ctx := context.WithValue(r.Context(), UserClaimsKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	}
+	})
 }
 
 // GetUserClaims extracts user claims from context

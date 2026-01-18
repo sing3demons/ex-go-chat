@@ -355,7 +355,7 @@ type ParamInbound struct {
 }
 
 func (c *Ctx) L(userCase string, masking ...logger.MaskRule) logger.ICustomLogger {
-	c.Log.Init(userCase, "")
+	c.Log.Init(userCase, userCase+"-"+logger.NewSpanID())
 	// c.Log.SetUseCase(userCase)
 	// c.TraceID()
 	body := make(map[string]any)

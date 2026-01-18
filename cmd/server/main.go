@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"realtime-chat-system/config"
 	"realtime-chat-system/internal/handler"
@@ -15,6 +13,7 @@ import (
 	"realtime-chat-system/internal/websocket"
 	"realtime-chat-system/pkg/auth"
 	"realtime-chat-system/pkg/database"
+	"realtime-chat-system/pkg/kp"
 	"realtime-chat-system/pkg/logger"
 	redisClient "realtime-chat-system/pkg/redis"
 
@@ -31,6 +30,16 @@ func main() {
 	cfg := config.Load()
 	log.Infof("Configuration loaded: Server Port=%s, Database=%s", cfg.Server.Port, cfg.Database.Database)
 
+	customLog := logger.NewCustomLogger("chat-service", logger.LoggerConfig{
+		Summary: logger.LogOutputConfig{Path: "./logs/summary/", Console: true, File: true},
+		Detail:  logger.LogOutputConfig{Path: "./logs/detail/", Console: true, File: true},
+		Rotation: logger.RotationConfig{
+			MaxSize:    50 * 1024 * 1024, // 50MB
+			MaxAge:     7,                // 7 days
+			MaxBackups: 5,
+			Compress:   true,
+		},
+	})
 	// Connect to MongoDB
 	ctx := context.Background()
 	db, err := database.Connect(ctx, cfg.Database.URI, cfg.Database.Database, cfg.Database.Timeout)
@@ -70,13 +79,13 @@ func main() {
 	roomRepo := repository.NewRoomRepository(db.Database)
 	messageRepo := repository.NewMessageRepository(db.Database)
 	notificationRepo := repository.NewNotificationRepository(db.Database)
-	
+
 	// Initialize cache repositories (choose between memory or Redis)
 	var messageCacheRepo repository.MessageCacheRepository
-	var _ repository.TypingRepository
-	var _ repository.SessionRepository
-	var _ repository.RateLimitRepository
-	
+	// var _ repository.TypingRepository
+	// var _ repository.SessionRepository
+	// var _ repository.RateLimitRepository
+
 	// Initialize presence repository (choose between memory or Redis)
 	var presenceRepo repository.PresenceRepository
 	if redisClient != nil {
@@ -93,7 +102,7 @@ func main() {
 		messageCacheRepo = nil
 		log.Info("Using memory presence repository, caching disabled")
 	}
-	
+
 	log.Info("Repositories initialized")
 
 	// Initialize JWT manager
@@ -123,6 +132,7 @@ func main() {
 	log.Info("Presence heartbeat monitor started")
 
 	// Initialize handlers
+	// authMw      *middleware.AuthMiddleware
 	authHandler := handler.NewAuthHandler(authService)
 	authMiddleware := middleware.NewAuthMiddleware(authService)
 	roomHandler := handler.NewRoomHandler(roomService, authMiddleware, hub)
@@ -132,65 +142,73 @@ func main() {
 	wsHandler := websocket.NewHandler(hub, authService, roomService, presenceService, log)
 	log.Info("Handlers initialized")
 
+	app := kp.NewMicroservice(cfg, customLog)
+	app.Use(middleware.CORS)
+
 	// Setup HTTP routes
-	mux := http.NewServeMux()
-	
+	// mux := http.NewServeMux()
+
 	// Health check endpoint
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+	// mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// 	w.WriteHeader(http.StatusOK)
+	// 	w.Write([]byte("OK"))
+	// })
+	app.GET("/health", func(ctx *kp.Ctx) {
+		ctx.JSON(http.StatusOK, "OK")
 	})
-	
+
 	// Register auth routes
-	authHandler.RegisterRoutes(mux)
-	
+	authHandler.RegisterRoutes(app)
+
 	// Register room routes
-	roomHandler.RegisterRoutes(mux)
-	
+	roomHandler.RegisterRoutes(app)
+
 	// Register message routes
-	messageHandler.RegisterRoutes(mux)
-	
+	messageHandler.RegisterRoutes(app)
+
 	// Register user routes
-	userHandler.RegisterRoutes(mux)
-	
+	userHandler.RegisterRoutes(app)
+
 	// Register notification routes
-	notificationHandler.RegisterRoutes(mux)
-	
+	notificationHandler.RegisterRoutes(app)
+
 	// Register WebSocket route
-	mux.HandleFunc("/ws", wsHandler.ServeWS)
+	app.GET("/ws", wsHandler.ServeWS)
 	log.Info("Routes registered")
+	// Start the microservice
+	app.Start()
 
-	// Setup HTTP server with CORS middleware
-	server := &http.Server{
-		Addr:         ":" + cfg.Server.Port,
-		Handler:      middleware.CORS(mux),
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
-	}
+	// // Setup HTTP server with CORS middleware
+	// server := &http.Server{
+	// 	Addr:         ":" + cfg.Server.Port,
+	// 	Handler:      middleware.CORS(mux),
+	// 	ReadTimeout:  cfg.Server.ReadTimeout,
+	// 	WriteTimeout: cfg.Server.WriteTimeout,
+	// }
 
-	// Start server in a goroutine
-	go func() {
-		log.Infof("Server starting on port %s", cfg.Server.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Errorf("Server failed to start: %v", err)
-			os.Exit(1)
-		}
-	}()
+	// // Start server in a goroutine
+	// go func() {
+	// 	log.Infof("Server starting on port %s", cfg.Server.Port)
+	// 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	// 		log.Errorf("Server failed to start: %v", err)
+	// 		os.Exit(1)
+	// 	}
+	// }()
 
-	// Wait for interrupt signal to gracefully shutdown the server
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	// // Wait for interrupt signal to gracefully shutdown the server
+	// quit := make(chan os.Signal, 1)
+	// signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// <-quit
 
-	log.Info("Shutting down server...")
+	// log.Info("Shutting down server...")
 
-	// Graceful shutdown with timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	defer cancel()
+	// // Graceful shutdown with timeout
+	// shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	// defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Errorf("Server forced to shutdown: %v", err)
-	}
+	// if err := server.Shutdown(shutdownCtx); err != nil {
+	// 	log.Errorf("Server forced to shutdown: %v", err)
+	// }
 
-	log.Info("Server stopped")
+	// log.Info("Server stopped")
 }

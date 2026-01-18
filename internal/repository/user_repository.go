@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -9,6 +10,9 @@ import (
 
 	"realtime-chat-system/internal/models"
 	"realtime-chat-system/pkg/errors"
+	"realtime-chat-system/pkg/logAction"
+	"realtime-chat-system/pkg/logger"
+	"realtime-chat-system/pkg/mlog"
 )
 
 // UserRepository defines the interface for user data access
@@ -65,6 +69,8 @@ func (r *userRepository) Create(ctx context.Context, user *models.User) error {
 
 // FindByID finds a user by ID
 func (r *userRepository) FindByID(ctx context.Context, id string) (*models.User, error) {
+	log := mlog.L(ctx)
+	startTime := time.Now()
 	var user models.User
 
 	// Try to parse as ObjectID first, if fails use as string
@@ -75,45 +81,138 @@ func (r *userRepository) FindByID(ctx context.Context, id string) (*models.User,
 		filter = bson.M{"_id": id}
 	}
 
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: r.collection.Name(),
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, "Find user by ID"), filter)
+	//
+
 	err := r.collection.FindOne(ctx, filter).Decode(&user)
+	end := time.Since(startTime).Microseconds()
 	if err != nil {
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   r.collection.Name(),
+			ResponseTime: end,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Find user by ID"), map[string]any{
+			"error": err.Error(),
+		})
 		if err == mongo.ErrNoDocuments {
 			return nil, errors.ErrUserNotFound()
 		}
 		return nil, errors.ErrDatabase(err)
 	}
+
+	maskingData := []logger.MaskRule{{
+		Field: "result.email",
+		Type:  logger.MaskEmail,
+	}, {
+		Field:  "result.username",
+		Type:   logger.MaskPartial,
+		Prefix: 2,
+	}}
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency:   r.collection.Name(),
+		ResponseTime: end,
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Find user by ID"), map[string]any{
+		"result": user,
+	}, maskingData...)
 
 	return &user, nil
 }
 
 // FindByUsername finds a user by username
 func (r *userRepository) FindByUsername(ctx context.Context, username string) (*models.User, error) {
+	log := mlog.L(ctx)
+	startTime := time.Now()
 	var user models.User
 
 	filter := bson.M{"username": username}
+
+	//
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: r.collection.Name(),
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, "Find user by username"), filter, logger.MaskRule{
+		Field:  "username",
+		Type:   logger.MaskPartial,
+		Prefix: 2,
+	})
+	//
 	err := r.collection.FindOne(ctx, filter).Decode(&user)
+	end := time.Since(startTime).Microseconds()
 	if err != nil {
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   r.collection.Name(),
+			ResponseTime: end,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Find user by username"), map[string]any{
+			"error": err.Error(),
+		})
 		if err == mongo.ErrNoDocuments {
 			return nil, errors.ErrUserNotFound()
 		}
 		return nil, errors.ErrDatabase(err)
 	}
+	maskingData := []logger.MaskRule{{
+		Field: "result.email",
+		Type:  logger.MaskEmail,
+	}, {
+		Field:  "result.username",
+		Type:   logger.MaskPartial,
+		Prefix: 2,
+	}}
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency:   "users",
+		ResponseTime: end,
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Find user by username"), map[string]any{
+		"result": user,
+	}, maskingData...)
 
 	return &user, nil
 }
 
 // FindByEmail finds a user by email
 func (r *userRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	log := mlog.L(ctx)
+	startTime := time.Now()
+
 	var user models.User
 
 	filter := bson.M{"email": email}
+
+	//
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: r.collection.Name(),
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, "Find user by email"), filter, logger.MaskRule{
+		Field: "email",
+		Type:  logger.MaskEmail,
+	})
+	//
 	err := r.collection.FindOne(ctx, filter).Decode(&user)
+	end := time.Since(startTime).Microseconds()
 	if err != nil {
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   r.collection.Name(),
+			ResponseTime: end,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Find user by email"), map[string]any{
+			"error": err.Error(),
+		})
 		if err == mongo.ErrNoDocuments {
 			return nil, errors.ErrUserNotFound()
 		}
 		return nil, errors.ErrDatabase(err)
 	}
+
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency:   r.collection.Name(),
+		ResponseTime: end,
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Find user by email"), map[string]any{
+		"result": user,
+	}, logger.MaskRule{
+		Field: "result.email",
+		Type:  logger.MaskEmail,
+	}, logger.MaskRule{
+		Field:  "result.username",
+		Type:   logger.MaskPartial,
+		Prefix: 2,
+	})
 
 	return &user, nil
 }
@@ -131,6 +230,9 @@ func containsField(errMsg, field string) bool {
 
 // SearchByUsername searches users by username prefix
 func (r *userRepository) SearchByUsername(ctx context.Context, query string, limit int) ([]*models.User, error) {
+	log := mlog.L(ctx)
+	startTime := time.Now()
+
 	if limit <= 0 {
 		limit = 10
 	}
@@ -143,8 +245,25 @@ func (r *userRepository) SearchByUsername(ctx context.Context, query string, lim
 		},
 	}
 
+	// Log the DB request
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: r.collection.Name(),
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, "Search users by username"), filter, logger.MaskRule{
+		Field:  "username",
+		Type:   logger.MaskPartial,
+		Prefix: 2,
+	})
+	//
+
 	cursor, err := r.collection.Find(ctx, filter)
+	end := time.Since(startTime).Microseconds()
 	if err != nil {
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   r.collection.Name(),
+			ResponseTime: end,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Search users by username"), map[string]any{
+			"error": err.Error(),
+		})
 		return nil, errors.ErrDatabase(err)
 	}
 	defer cursor.Close(ctx)
@@ -159,6 +278,22 @@ func (r *userRepository) SearchByUsername(ctx context.Context, query string, lim
 		users = append(users, &user)
 		count++
 	}
+
+	maskingData := []logger.MaskRule{{
+		Field: "result.email",
+		Type:  logger.MaskEmail,
+	}, {
+		Field:  "result.username",
+		Type:   logger.MaskPartial,
+		Prefix: 2,
+	}}
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency:   r.collection.Name(),
+		ResponseTime: end,
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "Search users by username"), map[string]any{
+		"result_count": len(users),
+		"result":       users,
+	}, maskingData...)
 
 	return users, nil
 }
