@@ -56,7 +56,7 @@ interface MessagesContextType {
   getMessages: (roomId: string) => Message[];
 }
 
-const MessagesContext = createContext<MessagesContextType | undefined>(undefined);
+export const MessagesContext = createContext<MessagesContextType | undefined>(undefined);
 
 export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(messagesReducer, {

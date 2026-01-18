@@ -100,7 +100,7 @@ export const MessageInput = ({ roomId }: MessageInputProps) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border-t p-2 sm:p-3 bg-white flex-shrink-0 relative">
+    <form onSubmit={handleSubmit} className="border-t p-2 sm:p-3 bg-white shrink-0 relative">
       <div className="flex gap-1 sm:gap-2 items-end">
         {/* Emoji Picker Button */}
         <div className="relative" ref={emojiPickerRef}>

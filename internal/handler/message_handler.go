@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"realtime-chat-system/internal/middleware"
 	"realtime-chat-system/internal/service"
@@ -17,6 +19,10 @@ type MessageHandler struct {
 	messageService service.MessageService
 	roomService    service.RoomService
 	authMw         *middleware.AuthMiddleware
+
+	rateMu      sync.Mutex
+	lastFetch   map[string]time.Time // key: userID|roomID
+	minInterval time.Duration        // throttle per user-room
 }
 
 // NewMessageHandler creates a new message handler
@@ -25,6 +31,8 @@ func NewMessageHandler(messageService service.MessageService, roomService servic
 		messageService: messageService,
 		roomService:    roomService,
 		authMw:         authMw,
+		lastFetch:      make(map[string]time.Time),
+		minInterval:    300 * time.Millisecond,
 	}
 }
 
@@ -127,6 +135,17 @@ func (h *MessageHandler) GetMessages(ctx *kp.Ctx) {
 		}
 	}
 
+	// Throttle rapid repeat fetch per user-room
+	// if !h.allowFetch(userID, roomID) {
+	// 	customError = &kp.Error{
+	// 		StatusCode: http.StatusTooManyRequests,
+	// 		Message:    "too_many_requests",
+	// 		Err:        nil,
+	// 	}
+	// 	ctx.JSONError(customError)
+	// 	return
+	// }
+
 	// Get messages
 	messages, err := h.messageService.GetMessages(ctx, roomID, limit, offset)
 	if err != nil {
@@ -211,4 +230,25 @@ func extractRoomIDFromPath(path string) string {
 	path = strings.TrimPrefix(path, "/api/messages/room/")
 
 	return path
+}
+
+// allowFetch enforces a minimal interval between message fetches per user-room
+func (h *MessageHandler) allowFetch(userID, roomID string) bool {
+	if userID == "" || roomID == "" {
+		return true
+	}
+
+	key := userID + "|" + roomID
+	now := time.Now()
+
+	h.rateMu.Lock()
+	defer h.rateMu.Unlock()
+
+	last, ok := h.lastFetch[key]
+	if ok && now.Sub(last) < h.minInterval {
+		return false
+	}
+
+	h.lastFetch[key] = now
+	return true
 }

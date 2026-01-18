@@ -167,9 +167,9 @@ func (h *WSMessageHandler) handleReadStatus(ctx context.Context, conn *Connectio
 		return
 	}
 
-	// Get message to find sender
-	message, err := h.messageService.GetMessages(ctx, msg.RoomID, 1, 0)
-	if err != nil || len(message) == 0 {
+	// Get message to find sender (exact message to avoid wrong sender)
+	message, err := h.messageService.GetMessageByID(ctx, payload.MessageID)
+	if err != nil || message == nil {
 		return
 	}
 
@@ -181,7 +181,7 @@ func (h *WSMessageHandler) handleReadStatus(ctx context.Context, conn *Connectio
 
 	// Broadcast to sender
 	h.hub.BroadcastToUser <- &UserBroadcast{
-		UserID: message[0].SenderID,
+		UserID: message.SenderID,
 		Message: &WSMessage{
 			Type:    MessageTypeRead,
 			RoomID:  msg.RoomID,
@@ -205,9 +205,9 @@ func (h *WSMessageHandler) handleDeliveredStatus(ctx context.Context, conn *Conn
 		return
 	}
 
-	// Get message to find sender
-	message, err := h.messageService.GetMessages(ctx, msg.RoomID, 1, 0)
-	if err != nil || len(message) == 0 {
+	// Get message to find sender (exact message to avoid wrong sender)
+	message, err := h.messageService.GetMessageByID(ctx, payload.MessageID)
+	if err != nil || message == nil {
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *WSMessageHandler) handleDeliveredStatus(ctx context.Context, conn *Conn
 
 	// Broadcast to sender
 	h.hub.BroadcastToUser <- &UserBroadcast{
-		UserID: message[0].SenderID,
+		UserID: message.SenderID,
 		Message: &WSMessage{
 			Type:    MessageTypeDelivered,
 			RoomID:  msg.RoomID,

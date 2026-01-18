@@ -14,6 +14,7 @@ import (
 type MessageService interface {
 	SendMessage(ctx context.Context, roomID, senderID, content string) (*models.Message, error)
 	GetMessages(ctx context.Context, roomID string, limit, offset int) ([]*models.Message, error)
+	GetMessageByID(ctx context.Context, messageID string) (*models.Message, error)
 	UpdateDeliveryStatus(ctx context.Context, messageID, userID string) error
 	UpdateReadStatus(ctx context.Context, messageID, userID string) error
 	EditMessage(ctx context.Context, messageID, userID, newContent string) error
@@ -106,7 +107,7 @@ func (s *messageService) SendMessage(ctx context.Context, roomID, senderID, cont
 func (s *messageService) GetMessages(ctx context.Context, roomID string, limit, offset int) ([]*models.Message, error) {
 	// Note: Authorization check should be done by the caller (handler/service)
 	// to verify user is a member of the room
-	
+
 	// Try to get from cache first (only for recent messages, offset = 0)
 	if s.cacheRepo != nil && offset == 0 {
 		cachedMessages, err := s.cacheRepo.GetCachedRoomMessages(ctx, roomID, int64(limit))
@@ -115,13 +116,13 @@ func (s *messageService) GetMessages(ctx context.Context, roomID string, limit, 
 			return cachedMessages, nil
 		}
 	}
-	
+
 	// Fallback to database
 	messages, err := s.messageRepo.FindByRoom(ctx, roomID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Cache the messages if this is a recent fetch (offset = 0)
 	if s.cacheRepo != nil && offset == 0 {
 		for _, message := range messages {
@@ -130,8 +131,13 @@ func (s *messageService) GetMessages(ctx context.Context, roomID string, limit, 
 			}
 		}
 	}
-	
+
 	return messages, nil
+}
+
+// GetMessageByID retrieves a single message by ID
+func (s *messageService) GetMessageByID(ctx context.Context, messageID string) (*models.Message, error) {
+	return s.messageRepo.FindByID(ctx, messageID)
 }
 
 // UpdateDeliveryStatus updates the delivery status of a message for a user
@@ -191,13 +197,13 @@ func (s *messageService) UpdateReadStatus(ctx context.Context, messageID, userID
 	// Update read status if not already read
 	if !status.Read {
 		now := time.Now()
-		
+
 		// Mark as delivered if not already
 		if !status.Delivered {
 			status.Delivered = true
 			status.DeliveredAt = &now
 		}
-		
+
 		status.Read = true
 		status.ReadAt = &now
 		message.Status[userID] = status

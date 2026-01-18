@@ -140,7 +140,7 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 
 	if existingConn, exists := h.connections[conn.UserID]; exists && existingConn == conn {
 		delete(h.connections, conn.UserID)
-		
+
 		// Safely close the channel
 		select {
 		case <-conn.Send:
@@ -148,7 +148,7 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 		default:
 			close(conn.Send)
 		}
-		
+
 		h.log.Infof("User %s disconnected (total: %d)", conn.UserID, len(h.connections))
 
 		// Mark user as offline
@@ -166,17 +166,28 @@ func (h *Hub) broadcastToRoom(broadcast *RoomBroadcast) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	h.log.Infof("Broadcasting to room %s, total connections: %d, exclude: %s", broadcast.RoomID, len(h.connections), broadcast.Exclude)
+
+	deliveredCount := 0
 	for userID, conn := range h.connections {
 		// Skip excluded user
 		if userID == broadcast.Exclude {
+			h.log.Infof("Skipping excluded user: %s", userID)
 			continue
 		}
 
 		// Check if connection is subscribed to the room
-		if conn.IsSubscribedToRoom(broadcast.RoomID) {
+		isSubscribed := conn.IsSubscribedToRoom(broadcast.RoomID)
+		h.log.Infof("User %s subscribed to room %s: %v, rooms: %v", userID, broadcast.RoomID, isSubscribed, conn.GetRooms())
+
+		if isSubscribed {
 			conn.SendMessage(broadcast.Message)
+			deliveredCount++
+			h.log.Infof("Message sent to user %s in room %s", userID, broadcast.RoomID)
 		}
 	}
+
+	h.log.Infof("Broadcast complete: delivered to %d users in room %s", deliveredCount, broadcast.RoomID)
 }
 
 // broadcastToUser broadcasts a message to a specific user

@@ -1,16 +1,22 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { MessageItem } from './MessageItem';
-import { api } from '../services/api';
+import { useChatStore } from '../store/chatStore';
 import type { Message } from '../types';
+
+const EMPTY_MESSAGES: Message[] = [];
 
 interface MessageListProps {
   roomId: string;
 }
 
 export const MessageList = ({ roomId }: MessageListProps) => {
-  // Use only React state - no Zustand
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const loadMessages = useChatStore((state) => state.loadMessages);
+  const isLoading = useChatStore((state) => state.isLoading);
+  const updateCount = useChatStore((state) => state.updateCounter);
+  const messages = useChatStore((state) => state.messages[roomId] || EMPTY_MESSAGES);
+  
+  // Debug: Log when component renders
+  console.log('🔄 MessageList render - roomId:', roomId, 'messages.length:', messages.length, 'updateCount:', updateCount);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -19,46 +25,25 @@ export const MessageList = ({ roomId }: MessageListProps) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
-  // Load messages from API - memoized to prevent infinite loops
-  const loadMessages = useCallback(async () => {
-    if (!roomId) return;
-    
-    try {
-      setIsLoading(true);
-      const apiMessages = await api.getMessages(roomId, 50, 0);
-      const reversedMessages = apiMessages.reverse();
-      setMessages(reversedMessages);
-      console.log(`✅ Loaded ${reversedMessages.length} messages for room ${roomId}`);
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [roomId]);
-
   // Load initial messages
   useEffect(() => {
-    if (roomId) {
-      loadMessages();
-    }
-  }, [roomId, loadMessages]);
-
-  // Poll for new messages every 3 seconds
-  useEffect(() => {
     if (!roomId) return;
 
-    const interval = setInterval(() => {
-      console.log('🔄 Polling for new messages...');
-      loadMessages();
-    }, 3000);
+    const fetchMessages = async () => {
+      try {
+        await loadMessages(roomId);
+      } catch (error) {
+        console.error('Failed to load messages:', error);
+      }
+    };
 
-    return () => clearInterval(interval);
+    fetchMessages();
   }, [roomId, loadMessages]);
 
   // Auto-scroll when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, updateCount]);
 
   // Group messages by date
   const groupMessagesByDate = () => {
@@ -66,7 +51,7 @@ export const MessageList = ({ roomId }: MessageListProps) => {
     let currentDate = '';
     let currentGroup: Message[] = [];
 
-    messages.forEach((message) => {
+    messages.forEach((message: Message) => {
       const messageDate = new Date(message.createdAt).toLocaleDateString();
       
       if (messageDate !== currentDate) {

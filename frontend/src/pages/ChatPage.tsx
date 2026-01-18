@@ -162,7 +162,7 @@ export const ChatPage = () => {
       )}
 
       {/* Header - reduced padding */}
-      <header className="bg-white border-b shadow-sm z-10 flex-shrink-0">
+      <header className="bg-white border-b shadow-sm z-10 shrink-0">
         <div className="px-2 sm:px-4 py-2 flex justify-between items-center">
           {/* Left: Logo & Title */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -176,7 +176,7 @@ export const ChatPage = () => {
             </button>
             
             <div className="flex items-center gap-1 sm:gap-2 min-w-0">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-500 rounded-lg flex items-center justify-center shrink-0">
                 <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
@@ -246,7 +246,7 @@ export const ChatPage = () => {
             {/* User Menu */}
             <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2 border-l">
               <Avatar userId={user.id} username={user.username} size="sm" />
-              <span className="text-xs sm:text-sm font-medium text-gray-700 hidden lg:block truncate max-w-[100px]">
+              <span className="text-xs sm:text-sm font-medium text-gray-700 hidden lg:block truncate max-w-24">
                 {user.username}
               </span>
               <button

@@ -58,13 +58,30 @@ export const useWebSocket = () => {
   }, [subscribeToRooms]);
 
   useEffect(() => {
+    // Get current user ID from localStorage
+    const getCurrentUserId = (): string | null => {
+      try {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          return user.id || null;
+        }
+      } catch {
+        console.error('Failed to get current user ID');
+      }
+      return null;
+    };
+
     // Handle incoming messages
     const unsubMessage = websocket.on('message', (msg) => {
       const payload = msg.payload as ChatMessagePayload & { tempId?: string };
+      const currentUserId = getCurrentUserId();
       
-      // Check if this is a confirmation of an optimistic message
-      if (payload.tempId) {
+      // Check if this is a confirmation of OUR OWN optimistic message
+      // Only confirm if: has tempId AND senderId matches current user
+      if (payload.tempId && payload.senderId === currentUserId) {
         // This is a server confirmation - replace the optimistic message
+        console.log('✅ Confirming our own message:', payload.tempId);
         confirmMessage(payload.tempId, {
           id: payload.messageId,
           roomId: msg.roomId!,
@@ -77,7 +94,7 @@ export const useWebSocket = () => {
           updatedAt: payload.timestamp,
         });
       } else {
-        // This is a new message from another user
+        // This is a new message from another user (or broadcast without tempId)
         console.log('📨 Received new message from another user:', payload);
         const newMessage = {
           id: payload.messageId,
@@ -93,17 +110,6 @@ export const useWebSocket = () => {
         console.log('📨 Adding message to store:', newMessage);
         addMessage(newMessage);
         console.log('✅ Message added to store successfully');
-        
-        // FORCE RELOAD when receiving message from another user
-        const authStore = JSON.parse(localStorage.getItem('auth-storage') || '{}');
-        const currentUserId = authStore.state?.user?.id;
-        
-        if (currentUserId && payload.senderId !== currentUserId) {
-          console.log('🔄 Received message from another user, forcing reload...');
-          setTimeout(() => {
-            window.location.reload();
-          }, 100);
-        }
       }
 
       // Send delivery acknowledgment automatically with a small delay
