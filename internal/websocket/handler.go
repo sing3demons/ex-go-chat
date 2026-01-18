@@ -5,6 +5,7 @@ import (
 
 	"realtime-chat-system/internal/service"
 	"realtime-chat-system/pkg/kp"
+	"realtime-chat-system/pkg/logAction"
 	"realtime-chat-system/pkg/logger"
 
 	"github.com/gorilla/websocket"
@@ -65,8 +66,16 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 		return
 	}
 
+	// Initialize logger for this WebSocket connection
+	ctx.Log.Init("connect_ws", logger.NewSpanID())
+	ctx.Log.AddMetadata("username", claims.Username)
+
 	// Create connection
 	wsConn := NewConnection(claims.UserID, claims.Username, conn, h.log)
+	ctx.Log.Info(logAction.INBOUND(claims.Username+" connect to WebSocket"), map[string]any{
+		"headers": ctx.Headers(),
+		"query":   ctx.QueryString(),
+	})
 
 	// Subscribe to user's rooms
 	rooms, err := h.roomService.GetUserRooms(ctx, claims.UserID)
@@ -86,10 +95,14 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 	h.presenceService.SetOnline(ctx, claims.UserID)
 
 	// Start write pump in goroutine
-	go wsConn.WritePump()
+	go wsConn.WritePump(ctx.Log)
 
 	// Start read pump (blocking - keeps connection alive)
 	wsConn.ReadPump(h.hub)
 
 	h.log.Infof("WebSocket connection closed for user %s", claims.UserID)
+	if !ctx.Log.IsEnd() {
+		ctx.Log.Info(logAction.OUTBOUND(claims.Username+" disconnected from WebSocket"), "WebSocket connection closed for user "+claims.UserID)
+		ctx.Log.Flush(http.StatusOK, "")
+	}
 }

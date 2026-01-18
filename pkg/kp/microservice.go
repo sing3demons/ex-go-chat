@@ -25,7 +25,7 @@ type Microservice struct {
 	config       *config.Config
 	mux          *http.ServeMux
 	middlewares  []Middleware
-	parentLogger logger.ICustomLogger
+	loggerConfig logger.LoggerConfig
 }
 type IMicroservice interface {
 	Start()
@@ -46,11 +46,11 @@ type IMicroservice interface {
 	Match(methods, path string, handler MyHandler, middlewares ...Middleware)
 }
 
-func NewMicroservice(cfg *config.Config, parentLogger logger.ICustomLogger) IMicroservice {
+func NewMicroservice(cfg *config.Config, loggerConfig logger.LoggerConfig) IMicroservice {
 	return &Microservice{
 		config:       cfg,
 		mux:          http.NewServeMux(),
-		parentLogger: parentLogger,
+		loggerConfig: loggerConfig,
 	}
 }
 
@@ -130,7 +130,9 @@ func (m *Microservice) Use(middleware Middleware) {
 func (m *Microservice) preHandle(handler MyHandler, middlewares ...Middleware) http.HandlerFunc {
 	// Wrap MyHandler into http.HandlerFunc
 	final := func(w http.ResponseWriter, r *http.Request) {
-		handler(newMuxContext(w, r, m.config, m.parentLogger).(*Ctx))
+		// Create a new per-request logger using the configured LoggerConfig
+		requestLogger := logger.NewCustomLogger(m.config.Server.Name, m.loggerConfig)
+		handler(newMuxContext(w, r, m.config, requestLogger).(*Ctx))
 	}
 	// Apply middlewares in reverse order (so the first is outermost)
 	for i := len(middlewares) - 1; i >= 0; i-- {

@@ -30,16 +30,6 @@ func main() {
 	cfg := config.Load()
 	log.Infof("Configuration loaded: Server Port=%s, Database=%s", cfg.Server.Port, cfg.Database.Database)
 
-	customLog := logger.NewCustomLogger("chat-service", logger.LoggerConfig{
-		Summary: logger.LogOutputConfig{Path: "./logs/summary/", Console: true, File: true},
-		Detail:  logger.LogOutputConfig{Path: "./logs/detail/", Console: true, File: true},
-		Rotation: logger.RotationConfig{
-			MaxSize:    50 * 1024 * 1024, // 50MB
-			MaxAge:     7,                // 7 days
-			MaxBackups: 5,
-			Compress:   true,
-		},
-	})
 	// Connect to MongoDB
 	ctx := context.Background()
 	db, err := database.Connect(ctx, cfg.Database.URI, cfg.Database.Database, cfg.Database.Timeout)
@@ -142,7 +132,17 @@ func main() {
 	wsHandler := websocket.NewHandler(hub, authService, roomService, presenceService, log)
 	log.Info("Handlers initialized")
 
-	app := kp.NewMicroservice(cfg, customLog)
+	loggerConfig := logger.LoggerConfig{
+		Summary: logger.LogOutputConfig{Path: "./logs/summary/", Console: true, File: true},
+		Detail:  logger.LogOutputConfig{Path: "./logs/detail/", Console: true, File: true},
+		Rotation: logger.RotationConfig{
+			MaxSize:    50 * 1024 * 1024, // 50MB
+			MaxAge:     7,                // 7 days
+			MaxBackups: 5,
+			Compress:   true,
+		},
+	}
+	app := kp.NewMicroservice(cfg, loggerConfig)
 	app.Use(middleware.CORS)
 
 	// Setup HTTP routes
@@ -177,38 +177,4 @@ func main() {
 	log.Info("Routes registered")
 	// Start the microservice
 	app.Start()
-
-	// // Setup HTTP server with CORS middleware
-	// server := &http.Server{
-	// 	Addr:         ":" + cfg.Server.Port,
-	// 	Handler:      middleware.CORS(mux),
-	// 	ReadTimeout:  cfg.Server.ReadTimeout,
-	// 	WriteTimeout: cfg.Server.WriteTimeout,
-	// }
-
-	// // Start server in a goroutine
-	// go func() {
-	// 	log.Infof("Server starting on port %s", cfg.Server.Port)
-	// 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-	// 		log.Errorf("Server failed to start: %v", err)
-	// 		os.Exit(1)
-	// 	}
-	// }()
-
-	// // Wait for interrupt signal to gracefully shutdown the server
-	// quit := make(chan os.Signal, 1)
-	// signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	// <-quit
-
-	// log.Info("Shutting down server...")
-
-	// // Graceful shutdown with timeout
-	// shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	// defer cancel()
-
-	// if err := server.Shutdown(shutdownCtx); err != nil {
-	// 	log.Errorf("Server forced to shutdown: %v", err)
-	// }
-
-	// log.Info("Server stopped")
 }

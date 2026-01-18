@@ -51,6 +51,8 @@ type LogEntry struct {
 	ResultCode     string         `json:"resultCode,omitempty"`
 	ResultFlag     string         `json:"resultFlag,omitempty"`
 	AdditionalInfo map[string]any `json:"additionalInfo,omitempty"`
+
+	User string `json:"user,omitempty"`
 }
 
 type ICustomLogger interface {
@@ -59,6 +61,7 @@ type ICustomLogger interface {
 	Debug(action logAction.LoggerAction, data any, maskingData ...MaskRule)
 	Error(action logAction.LoggerAction, data any, maskingData ...MaskRule)
 	Flush(code int, msg string)
+	IsEnd() bool
 	FlushError(code int, msg string)
 	SetDependencyMetadata(metadata DependencyMetadata) ICustomLogger
 	AddMetadata(key string, value any) ICustomLogger
@@ -220,16 +223,24 @@ func (l *LoggerDefault) Log(msg any) {
 	log.Printf("%+v\n", msg)
 }
 
+// SharedLogger is the singleton that holds shared resources (file logger, masker)
+type SharedLogger struct {
+	mu          sync.RWMutex
+	fileLogger  *FileLogger
+	serviceName string
+	masker      Masker
+}
+
+// CustomLogger is a per-request logger that holds request-specific data
 type CustomLogger struct {
-	mu         sync.RWMutex // Protects concurrent access
-	fileLogger *FileLogger
-	logEntry   LogEntry
-	masker     Masker
+	shared   *SharedLogger
+	logEntry LogEntry
+	mu       sync.RWMutex // Protects logEntry
 }
 
 // Singleton instance and initialization
 var (
-	customLoggerInstance *CustomLogger
+	sharedLoggerInstance *SharedLogger
 	once                 sync.Once
 )
 
@@ -251,50 +262,34 @@ type LoggerConfig struct {
 	Rotation RotationConfig
 }
 
-// NewCustomLogger creates or returns the singleton CustomLogger instance
+// NewCustomLogger creates or returns a new per-request CustomLogger instance
+// The SharedLogger is created once (singleton) and shared across all requests
 func NewCustomLogger(serviceName string, config LoggerConfig) ICustomLogger {
 	once.Do(func() {
 		fileLogger, err := NewFileLogger(config)
 		if err != nil {
 			log.Printf("failed to initialize file logger: %v", err)
 		}
-		customLoggerInstance = &CustomLogger{
-			fileLogger: fileLogger,
-			logEntry:   LogEntry{Service: serviceName},
-			masker:     NewMasker("X"),
+		sharedLoggerInstance = &SharedLogger{
+			fileLogger:  fileLogger,
+			serviceName: serviceName,
+			masker:      NewMasker("X"),
 		}
 	})
 
-	return customLoggerInstance
-}
-
-// SetLoggerConfig initializes the file logger with configuration
-func SetLoggerConfig(config LoggerConfig) error {
-	if customLoggerInstance == nil {
-		return fmt.Errorf("logger not initialized, call NewCustomLogger first")
+	// Create a new per-request logger
+	return &CustomLogger{
+		shared:   sharedLoggerInstance,
+		logEntry: LogEntry{Service: sharedLoggerInstance.serviceName},
 	}
-
-	customLoggerInstance.mu.Lock()
-	defer customLoggerInstance.mu.Unlock()
-
-	fileLogger, err := NewFileLogger(config)
-	if err != nil {
-		return err
-	}
-
-	if customLoggerInstance.fileLogger != nil {
-		customLoggerInstance.fileLogger.Close()
-	}
-	customLoggerInstance.fileLogger = fileLogger
-	return nil
 }
 
 // CloseLogger closes all open file handles
 func CloseLogger() error {
-	if customLoggerInstance != nil && customLoggerInstance.fileLogger != nil {
-		customLoggerInstance.mu.Lock()
-		defer customLoggerInstance.mu.Unlock()
-		return customLoggerInstance.fileLogger.Close()
+	if sharedLoggerInstance != nil && sharedLoggerInstance.fileLogger != nil {
+		sharedLoggerInstance.mu.Lock()
+		defer sharedLoggerInstance.mu.Unlock()
+		return sharedLoggerInstance.fileLogger.Close()
 	}
 	return nil
 }
@@ -512,10 +507,10 @@ func (l *CustomLogger) valuesEqual(a, b any) bool {
 func (l *CustomLogger) maskValue(val any, rule MaskRule) any {
 	switch v := val.(type) {
 	case string:
-		return l.masker.Mask(v, rule)
+		return l.shared.masker.Mask(v, rule)
 	case float64:
 		// Try to mask as string if it looks like a phone number or similar
-		return l.masker.Mask(fmt.Sprintf("%v", v), rule)
+		return l.shared.masker.Mask(fmt.Sprintf("%v", v), rule)
 
 	default:
 		return val
@@ -536,7 +531,7 @@ func (l *CustomLogger) log(level string, action logAction.LoggerAction, data any
 		Timestamp:         time.Now(),
 		Level:             level,
 		Type:              detail,
-		UseCase:          l.logEntry.UseCase,
+		UseCase:           l.logEntry.UseCase,
 		Service:           l.logEntry.Service,
 		TraceID:           l.logEntry.TraceID,
 		SpanID:            l.logEntry.SpanID,
@@ -561,8 +556,8 @@ func (l *CustomLogger) log(level string, action logAction.LoggerAction, data any
 		logMsg.Dependency = l.logEntry.Dependency
 		l.logEntry.Dependency = ""
 	}
-	if l.fileLogger != nil {
-		l.fileLogger.Log(detail, logMsg)
+	if l.shared.fileLogger != nil {
+		l.shared.fileLogger.Log(detail, logMsg)
 	} else {
 		os.Stdout.Write([]byte(fmt.Sprintf("%+v\n", logMsg)))
 	}
@@ -619,6 +614,15 @@ func (l *CustomLogger) SpanID() string {
 	defer l.mu.Unlock()
 	return l.logEntry.SpanID
 }
+
+func (l *CustomLogger) IsEnd() bool {
+	if !l.logEntry.StartTime.IsZero() {
+		fmt.Println("===============>true")
+		return true
+	}
+	fmt.Println("===========> false")
+	return false
+}
 func (l *CustomLogger) Flush(code int, msg string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -643,8 +647,8 @@ func (l *CustomLogger) Flush(code int, msg string) {
 
 		l.logEntry.AdditionalInfo = nil
 	}
-	if l.fileLogger != nil {
-		l.fileLogger.Log(summary, logMsg)
+	if l.shared.fileLogger != nil {
+		l.shared.fileLogger.Log(summary, logMsg)
 	}
 	// reset log entry
 	l.logEntry = LogEntry{Service: l.logEntry.Service}
@@ -673,8 +677,8 @@ func (l *CustomLogger) FlushError(code int, msg string) {
 
 		l.logEntry.AdditionalInfo = nil
 	}
-	if l.fileLogger != nil {
-		l.fileLogger.Log(summary, logMsg)
+	if l.shared.fileLogger != nil {
+		l.shared.fileLogger.Log(summary, logMsg)
 	}
 	// reset log entry
 	l.logEntry = LogEntry{Service: l.logEntry.Service}

@@ -17,6 +17,7 @@ type Config struct {
 
 // ServerConfig holds server configuration
 type ServerConfig struct {
+	Name            string
 	Port            string
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration

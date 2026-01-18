@@ -2,11 +2,14 @@ package websocket
 
 import (
 	"encoding/json"
+	"net/http"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"realtime-chat-system/pkg/logAction"
 	"realtime-chat-system/pkg/logger"
+
+	"github.com/gorilla/websocket"
 )
 
 // Connection represents a WebSocket connection
@@ -71,9 +74,13 @@ func (c *Connection) ReadPump(hub *Hub) {
 }
 
 // WritePump pumps messages from the hub to the WebSocket connection
-func (c *Connection) WritePump() {
+func (c *Connection) WritePump(log logger.ICustomLogger) {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
+		if !log.IsEnd() {
+			log.Info(logAction.OUTBOUND(c.Username+" WebSocket write pump ended"), "WebSocket write pump ended for user "+c.UserID)
+			log.Flush(http.StatusOK, "")
+		}
 		ticker.Stop()
 		c.Conn.Close()
 	}()
@@ -139,7 +146,7 @@ func (c *Connection) IsSubscribedToRoom(roomID string) bool {
 func (c *Connection) GetRooms() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	rooms := make([]string, 0, len(c.Rooms))
 	for roomID := range c.Rooms {
 		rooms = append(rooms, roomID)
