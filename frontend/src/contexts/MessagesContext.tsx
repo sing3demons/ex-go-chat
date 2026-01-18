@@ -23,7 +23,7 @@ const messagesReducer = (state: MessagesState, action: MessagesAction): Messages
         },
         updateCount: state.updateCount + 1
       };
-    case 'ADD_MESSAGE':
+    case 'ADD_MESSAGE': {
       const existingMessages = state.messagesByRoom[action.message.roomId] || [];
       const messageExists = existingMessages.some(m => m.id === action.message.id);
       
@@ -39,6 +39,7 @@ const messagesReducer = (state: MessagesState, action: MessagesAction): Messages
         },
         updateCount: state.updateCount + 1
       };
+    }
     case 'FORCE_UPDATE':
       return {
         ...state,

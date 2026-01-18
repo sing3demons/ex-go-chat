@@ -8,7 +8,9 @@ interface MessageInputProps {
 export const MessageInput = ({ roomId }: MessageInputProps) => {
   const [content, setContent] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
   const { sendMessage, startTyping, stopTyping } = useChat(roomId);
 
   // Auto-resize textarea
@@ -23,6 +25,42 @@ export const MessageInput = ({ roomId }: MessageInputProps) => {
   useEffect(() => {
     adjustTextareaHeight();
   }, [content]);
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    if (showEmojiPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showEmojiPicker]);
+
+  // Common emojis for quick access
+  const commonEmojis = [
+    '😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂',
+    '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛',
+    '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏',
+    '😒', '😞', '😔', '😟', '😕', '🙁', '😣', '😖', '😫', '😩',
+    '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵',
+    '❤️', '💕', '💗', '💖', '💙', '💚', '💛', '🧡', '💜', '🖤',
+    '👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘', '🤙', '👏', '🙌',
+    '🎉', '🎊', '🎈', '🎁', '🏆', '🥇', '🥈', '🥉', '⭐', '✨',
+    '🔥', '💯', '✅', '❌', '⚠️', '💬', '💭', '🗨️', '👀', '💪'
+  ];
+
+  const handleEmojiClick = (emoji: string) => {
+    setContent(prev => prev + emoji);
+    setShowEmojiPicker(false);
+    textareaRef.current?.focus();
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,18 +100,41 @@ export const MessageInput = ({ roomId }: MessageInputProps) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border-t p-2 sm:p-3 bg-white flex-shrink-0">
+    <form onSubmit={handleSubmit} className="border-t p-2 sm:p-3 bg-white flex-shrink-0 relative">
       <div className="flex gap-1 sm:gap-2 items-end">
-        {/* Emoji/Attachment buttons (placeholder) */}
-        <button
-          type="button"
-          className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-lg transition-colors text-gray-600 touch-manipulation hidden sm:block"
-          title="Add emoji"
-        >
-          <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </button>
+        {/* Emoji Picker Button */}
+        <div className="relative" ref={emojiPickerRef}>
+          <button
+            type="button"
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-lg transition-colors text-gray-600 touch-manipulation"
+            title="Add emoji"
+          >
+            <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+
+          {/* Emoji Picker Popup */}
+          {showEmojiPicker && (
+            <div className="absolute bottom-full left-0 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-50 w-72 sm:w-80">
+              <div className="text-xs font-medium text-gray-600 mb-2 px-1">เลือกอีโมจิ</div>
+              <div className="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-48 overflow-y-auto">
+                {commonEmojis.map((emoji, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => handleEmojiClick(emoji)}
+                    className="text-2xl hover:bg-gray-100 active:bg-gray-200 rounded p-1 transition-colors"
+                    title={emoji}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Text Input */}
         <textarea
