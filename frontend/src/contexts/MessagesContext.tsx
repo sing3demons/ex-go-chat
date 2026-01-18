@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react';
 import type { Message } from '../types';
 import { useChatStore } from '../store/chatStore';
 
@@ -63,20 +63,47 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     updateCount: 0
   });
 
-  // Sync with Zustand store
+  const prevMessagesRef = useRef<Record<string, Message[]>>({});
+
+  // Sync with Zustand store - Subscribe to changes and sync immediately
   useEffect(() => {
-    const unsubscribe = useChatStore.subscribe((zustandState) => {
-      console.log('🔄 Zustand store changed, syncing to React Context');
-      
-      // Sync all rooms
-      Object.keys(zustandState.messages).forEach(roomId => {
-        const messages = zustandState.messages[roomId] || [];
-        dispatch({ type: 'SET_MESSAGES', roomId, messages });
-      });
-    });
+    // Subscribe to entire store state
+    const unsubscribe = useChatStore.subscribe(
+      (state) => state,
+      (newState) => {
+        // Compare messages and sync only if changed
+        const currentMessages = newState.messages;
+        let hasChanges = false;
+
+        // Check for changes and dispatch updates
+        Object.keys(currentMessages).forEach(roomId => {
+          const newMessages = currentMessages[roomId] || [];
+          const prevMessages = prevMessagesRef.current[roomId] || [];
+
+          // Deep comparison: check if messages array actually changed
+          if (JSON.stringify(newMessages) !== JSON.stringify(prevMessages)) {
+            hasChanges = true;
+            dispatch({ type: 'SET_MESSAGES', roomId, messages: newMessages });
+          }
+        });
+
+        // Check for removed rooms
+        Object.keys(prevMessagesRef.current).forEach(roomId => {
+          if (!currentMessages[roomId]) {
+            hasChanges = true;
+            dispatch({ type: 'SET_MESSAGES', roomId, messages: [] });
+          }
+        });
+
+        if (hasChanges) {
+          prevMessagesRef.current = JSON.parse(JSON.stringify(currentMessages));
+        }
+      }
+    );
 
     // Initial sync
     const initialState = useChatStore.getState();
+    prevMessagesRef.current = JSON.parse(JSON.stringify(initialState.messages));
     Object.keys(initialState.messages).forEach(roomId => {
       const messages = initialState.messages[roomId] || [];
       dispatch({ type: 'SET_MESSAGES', roomId, messages });
@@ -84,31 +111,6 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     return unsubscribe;
   }, []);
-
-  // Force update every second as backup
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const zustandState = useChatStore.getState();
-      let hasChanges = false;
-      
-      Object.keys(zustandState.messages).forEach(roomId => {
-        const zustandMessages = zustandState.messages[roomId] || [];
-        const contextMessages = state.messagesByRoom[roomId] || [];
-        
-        if (zustandMessages.length !== contextMessages.length) {
-          hasChanges = true;
-          dispatch({ type: 'SET_MESSAGES', roomId, messages: zustandMessages });
-        }
-      });
-      
-      if (hasChanges) {
-        console.log('🔄 Polling detected changes, forcing update');
-        dispatch({ type: 'FORCE_UPDATE' });
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [state.messagesByRoom]);
 
   const getMessages = (roomId: string): Message[] => {
     return state.messagesByRoom[roomId] || [];
