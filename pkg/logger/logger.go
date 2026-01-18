@@ -9,15 +9,6 @@ import (
 	"os"
 )
 
-// {
-//   "timestamp",
-//   "level",
-//   "service",
-//   "trace_id",
-//   "span_id",
-//   "message"
-// }
-
 type contextKey string
 
 const (
@@ -25,33 +16,10 @@ const (
 	SpanIDKey       contextKey = "span_id"
 	ParentSpanIDKey contextKey = "parent_id"
 	OperationKey    contextKey = "operation"
+	summary                    = "summary"
+	detail                     = "detail"
+	LoggerKey       contextKey = "logger"
 )
-
-type LoggerAction struct {
-	Action            string `json:"action,omitempty"`
-	ActionDescription string `json:"actionDescription,omitempty"`
-	SubAction         string `json:"subAction,omitempty"`
-}
-
-type LogEntry struct {
-	Timestamp string `json:"timestamp"`
-	Level     string `json:"level"`
-	Service   string `json:"service"`
-	TraceID   string `json:"trace_id,omitempty"` //request ทั้งเส้น
-	SpanID    string `json:"span_id,omitempty"`  // step ย่อย (เช่น db call)
-	ParentID  string `json:"parent_id,omitempty"`
-	Message   string `json:"message"`
-	UseCase string `json:"usecase,omitempty"` //login,register
-
-	Action            string `json:"action,omitempty"`
-	ActionDescription string `json:"action_description,omitempty"`
-	SubAction         string `json:"sub_action,omitempty"`
-
-	Dependency string `json:"dependency,omitempty"`
-	Duration   string `json:"duration,omitempty"`
-
-	StartTime string `json:"-"`
-}
 
 func genID(bytes int) string {
 	b := make([]byte, bytes)
