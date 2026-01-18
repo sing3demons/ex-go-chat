@@ -2,11 +2,9 @@ package websocket
 
 import (
 	"encoding/json"
-	"net/http"
 	"sync"
 	"time"
 
-	"realtime-chat-system/pkg/logAction"
 	"realtime-chat-system/pkg/logger"
 
 	"github.com/gorilla/websocket"
@@ -42,9 +40,15 @@ func (c *Connection) ReadPump(hub *Hub) {
 		c.Conn.Close()
 	}()
 
-	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Set read deadline to 30 seconds (ping interval 25s + 5s buffer)
+	c.Conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	c.Conn.SetPongHandler(func(string) error {
-		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.Conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		return nil
+	})
+
+	// Set close handler to detect when client closes connection
+	c.Conn.SetCloseHandler(func(code int, text string) error {
 		return nil
 	})
 
@@ -74,13 +78,10 @@ func (c *Connection) ReadPump(hub *Hub) {
 }
 
 // WritePump pumps messages from the hub to the WebSocket connection
-func (c *Connection) WritePump(log logger.ICustomLogger) {
-	ticker := time.NewTicker(54 * time.Second)
+func (c *Connection) WritePump() {
+	// Send pings every 25 seconds (less than 30s read deadline)
+	ticker := time.NewTicker(25 * time.Second)
 	defer func() {
-		if !log.IsEnd() {
-			log.Info(logAction.OUTBOUND(c.Username+" WebSocket write pump ended"), "WebSocket write pump ended for user "+c.UserID)
-			log.Flush(http.StatusOK, "")
-		}
 		ticker.Stop()
 		c.Conn.Close()
 	}()

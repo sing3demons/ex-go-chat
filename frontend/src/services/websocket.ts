@@ -49,6 +49,15 @@ class WebSocketService {
           this.reconnectAttempts = 0;
           this.isReconnecting = false;
           this.startHeartbeat();
+          
+          // Add beforeunload listener to gracefully close connection when page unloads
+          window.addEventListener('beforeunload', () => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              console.log('📤 Sending close frame on page unload');
+              this.ws.close(1000, 'Page unload');
+            }
+          });
+          
           resolve();
         };
 

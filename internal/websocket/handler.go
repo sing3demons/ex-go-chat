@@ -95,14 +95,15 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 	h.presenceService.SetOnline(ctx, claims.UserID)
 
 	// Start write pump in goroutine
-	go wsConn.WritePump(ctx.Log)
+	go wsConn.WritePump()
 
 	// Start read pump (blocking - keeps connection alive)
 	wsConn.ReadPump(h.hub)
 
 	h.log.Infof("WebSocket connection closed for user %s", claims.UserID)
-	if !ctx.Log.IsEnd() {
-		ctx.Log.Info(logAction.OUTBOUND(claims.Username+" disconnected from WebSocket"), "WebSocket connection closed for user "+claims.UserID)
-		ctx.Log.Flush(http.StatusOK, "")
-	}
+	h.log.Info("DEBUG: About to flush custom log for WebSocket disconnect")
+	h.log.Info("DEBUG: Calling ctx.Log.Flush now")
+	ctx.Log.Info(logAction.OUTBOUND(claims.Username+" disconnected from WebSocket"), "WebSocket connection closed for user "+claims.UserID)
+	ctx.Log.Flush(http.StatusOK, "")
+	h.log.Info("DEBUG: ctx.Log.Flush completed")
 }
