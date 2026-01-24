@@ -111,6 +111,16 @@ func main() {
 	hub := websocket.NewHub(presenceService, log) // We'll set the message handler after creating it
 	wsMessageHandler := websocket.NewWSMessageHandler(hub, messageService, roomService, presenceService, notificationService, log)
 	hub.SetMessageHandler(wsMessageHandler)
+	// สร้าง Redis broadcaster (optional, สำหรับ multi-server)
+	// redisBroadcaster := websocket.NewRedisBroadcaster(
+	// 	redisClient.GetClient(), // Redis client
+	// 	"server-1",              // unique server ID (ใช้ hostname หรือ env variable ก็ได้)
+	// 	log,
+	// )
+	// Initialize Redis broadcaster for WebSocket
+	// เชื่อม broadcaster เข้า hub
+	// hub.SetRedisBroadcaster(redisBroadcaster)
+
 	log.Info("WebSocket hub initialized")
 
 	// Start hub in background

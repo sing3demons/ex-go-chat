@@ -63,6 +63,9 @@ type Hub struct {
 	// Presence service
 	presenceService PresenceService
 
+	// Redis broadcaster for multi-server distribution
+	broadcaster *RedisBroadcaster
+
 	log *logger.Logger
 }
 
@@ -83,7 +86,18 @@ func NewHub(presenceService PresenceService, log *logger.Logger) *Hub {
 		BroadcastToUser: make(chan *UserBroadcast, 256),
 		messageHandler:  nil,
 		presenceService: presenceService,
+		broadcaster:     nil,
 		log:             log,
+	}
+}
+
+// SetRedisBroadcaster sets the Redis broadcaster for multi-server distribution
+func (h *Hub) SetRedisBroadcaster(broadcaster *RedisBroadcaster) {
+	h.broadcaster = broadcaster
+	if broadcaster != nil {
+		h.log.Infof("Redis Pub/Sub enabled for multi-server broadcasting (ServerID: %s)", broadcaster.GetServerID())
+	} else {
+		h.log.Info("Redis Pub/Sub disabled - running in single-server mode")
 	}
 }
 
@@ -99,6 +113,12 @@ func (h *Hub) SetPresenceService(service PresenceService) {
 
 // Run starts the hub
 func (h *Hub) Run() {
+	// Set up broadcaster channel (will be nil if broadcaster not initialized, blocking forever)
+	var broadcasterChan <-chan *DistributedBroadcast
+	if h.broadcaster != nil {
+		broadcasterChan = h.broadcaster.IncomingBroadcast
+	}
+
 	for {
 		select {
 		case conn := <-h.Register:
@@ -115,6 +135,11 @@ func (h *Hub) Run() {
 
 		case broadcast := <-h.BroadcastToUser:
 			h.broadcastToUser(broadcast)
+
+		case distributed := <-broadcasterChan:
+			if distributed != nil {
+				h.handleDistributedBroadcast(distributed)
+			}
 		}
 	}
 }
@@ -133,6 +158,16 @@ func (h *Hub) registerConnection(conn *Connection) {
 	h.connections[conn.UserID] = conn
 	h.log.Infof("User %s connected (total: %d)", conn.UserID, len(h.connections))
 	mlog.L(conn.ctx).Debug(logAction.APP_LOGIC(fmt.Sprintf("User %s connected (total: %d)", conn.UserID, len(h.connections))), "User "+conn.UserID+" connected")
+
+	// Subscribe to user's personal Redis channel (if broadcaster enabled)
+	if h.broadcaster != nil {
+		ctx := context.Background()
+		if err := h.broadcaster.SubscribeToUserBroadcasts(ctx, conn.UserID); err != nil {
+			h.log.Errorf("Failed to subscribe to Redis user channel %s: %v", conn.UserID, err)
+		} else {
+			h.log.Debugf("Subscribed to Redis user channel: %s", conn.UserID)
+		}
+	}
 
 	// Broadcast presence update to user's rooms
 	h.broadcastPresenceUpdate(conn.UserID, true)
@@ -161,6 +196,15 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 		h.log.Infof("User %s disconnected (total: %d)", conn.UserID, len(h.connections))
 		log.Debug(logAction.APP_LOGIC(fmt.Sprintf("User %s disconnected (total: %d)", conn.UserID, len(h.connections))), "User "+conn.UserID+" disconnected")
 
+		// Unsubscribe from Redis user channel (if broadcaster enabled)
+		if h.broadcaster != nil {
+			if err := h.broadcaster.UnsubscribeFromUser(conn.UserID); err != nil {
+				h.log.Errorf("Failed to unsubscribe from Redis user channel %s: %v", conn.UserID, err)
+			} else {
+				h.log.Debugf("Unsubscribed from Redis user channel: %s", conn.UserID)
+			}
+		}
+
 		// Mark user as offline
 		if h.presenceService != nil {
 			h.presenceService.SetOffline(conn.ctx, conn.UserID)
@@ -174,6 +218,16 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 
 // broadcastToRoom broadcasts a message to all connections in a room
 func (h *Hub) broadcastToRoom(broadcast *RoomBroadcast) {
+	ctx := context.Background()
+
+	// Publish to Redis for multi-server distribution
+	if h.broadcaster != nil {
+		if err := h.broadcaster.PublishToRoom(ctx, broadcast.RoomID, broadcast.Message, broadcast.Exclude); err != nil {
+			h.log.Errorf("Failed to publish to Redis room: %v", err)
+		}
+	}
+
+	// Also deliver locally to this server's connections
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -201,8 +255,42 @@ func (h *Hub) broadcastToRoom(broadcast *RoomBroadcast) {
 	h.log.Infof("Broadcast complete: delivered to %d users in room %s", deliveredCount, broadcast.RoomID)
 }
 
+// SubscribeConnectionToRoom subscribes a connection to a room and coordinates Redis subscription
+func (h *Hub) SubscribeConnectionToRoom(conn *Connection, roomID string) {
+	// Subscribe connection locally
+	conn.SubscribeToRoom(roomID)
+
+	// Subscribe to Redis channel for distributed broadcasts (if broadcaster enabled)
+	if h.broadcaster != nil {
+		ctx := context.Background()
+		if err := h.broadcaster.SubscribeToRoomBroadcasts(ctx, roomID); err != nil {
+			h.log.Errorf("Failed to subscribe to Redis room channel %s: %v", roomID, err)
+		} else {
+			h.log.Debugf("Subscribed to Redis room channel: %s", roomID)
+		}
+	}
+}
+
+// UnsubscribeConnectionFromRoom unsubscribes a connection from a room
+func (h *Hub) UnsubscribeConnectionFromRoom(conn *Connection, roomID string) {
+	conn.UnsubscribeFromRoom(roomID)
+
+	// Note: We don't unsubscribe from Redis channel here because other connections
+	// on this server might still be subscribed to the same room
+}
+
 // broadcastToUser broadcasts a message to a specific user
 func (h *Hub) broadcastToUser(broadcast *UserBroadcast) {
+	ctx := context.Background()
+
+	// Publish to Redis for multi-server distribution
+	if h.broadcaster != nil {
+		if err := h.broadcaster.PublishToUser(ctx, broadcast.UserID, broadcast.Message); err != nil {
+			h.log.Errorf("Failed to publish to Redis user: %v", err)
+		}
+	}
+
+	// Also try to deliver locally to this server's connection
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -297,11 +385,49 @@ func (h *Hub) NotifyRoomCreated(roomID, roomType, name string, members []string)
 	// Notify all members and subscribe them to the room
 	for _, memberID := range members {
 		if conn, exists := h.connections[memberID]; exists {
-			// Subscribe connection to the new room
-			conn.SubscribeToRoom(roomID)
+			// Subscribe connection to the new room (including Redis)
+			h.SubscribeConnectionToRoom(conn, roomID)
 			// Send notification
 			conn.SendMessage(msg)
 			h.log.Infof("User %s subscribed to new room %s", memberID, roomID)
+		}
+	}
+}
+
+// handleDistributedBroadcast handles incoming broadcasts from Redis (other servers)
+func (h *Hub) handleDistributedBroadcast(broadcast *DistributedBroadcast) {
+	// Avoid re-processing messages from this server
+	if broadcast.ServerID == h.broadcaster.GetServerID() {
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if broadcast.Type == "room" {
+		h.log.Infof("Received distributed broadcast for room %s from server %s", broadcast.RoomID, broadcast.ServerID)
+
+		deliveredCount := 0
+		for userID, conn := range h.connections {
+			// Skip excluded user
+			if userID == broadcast.Exclude {
+				continue
+			}
+
+			// Check if connection is subscribed to the room
+			if conn.IsSubscribedToRoom(broadcast.RoomID) {
+				conn.SendMessage(broadcast.Message)
+				deliveredCount++
+			}
+		}
+
+		h.log.Infof("Distributed broadcast to room %s delivered to %d local connections", broadcast.RoomID, deliveredCount)
+	} else if broadcast.Type == "user" {
+		h.log.Infof("Received distributed broadcast for user %s from server %s", broadcast.UserID, broadcast.ServerID)
+
+		if conn, exists := h.connections[broadcast.UserID]; exists {
+			conn.SendMessage(broadcast.Message)
+			h.log.Infof("Distributed broadcast to user %s delivered", broadcast.UserID)
 		}
 	}
 }

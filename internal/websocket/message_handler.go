@@ -323,8 +323,8 @@ func (h *WSMessageHandler) handleJoinRoom(ctx context.Context, conn *Connection,
 		return
 	}
 
-	// Subscribe to room
-	conn.SubscribeToRoom(msg.RoomID)
+	// Subscribe to room (including Redis channel)
+	h.hub.SubscribeConnectionToRoom(conn, msg.RoomID)
 	h.log.Infof("User %s joined room %s", conn.UserID, msg.RoomID)
 }
 

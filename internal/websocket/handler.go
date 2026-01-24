@@ -87,7 +87,7 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 		h.log.Errorf("Failed to get user rooms: %v", err)
 	} else {
 		for _, room := range rooms {
-			wsConn.SubscribeToRoom(room.ID)
+			h.hub.SubscribeConnectionToRoom(wsConn, room.ID)
 		}
 		h.log.Infof("User %s subscribed to %d rooms", claims.UserID, len(rooms))
 	}
