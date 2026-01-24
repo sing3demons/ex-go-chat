@@ -14,7 +14,8 @@ import (
 
 // UserHandler handles user-related HTTP requests
 type UserHandler struct {
-	userRepo    repository.UserRepository
+	userService service.UserService
+	userRepo    repository.UserRepository // Keep for SearchUsers direct access
 	roomService service.RoomService
 	authMw      *middleware.AuthMiddleware
 	hub         HubInterface
@@ -26,9 +27,10 @@ type HubInterface interface {
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(userRepo repository.UserRepository, roomService service.RoomService, authMw *middleware.AuthMiddleware, hub HubInterface) *UserHandler {
+func NewUserHandler(userRepo repository.UserRepository, userService service.UserService, roomService service.RoomService, authMw *middleware.AuthMiddleware, hub HubInterface) *UserHandler {
 	return &UserHandler{
 		userRepo:    userRepo,
+		userService: userService,
 		roomService: roomService,
 		authMw:      authMw,
 		hub:         hub,
@@ -164,8 +166,8 @@ func (h *UserHandler) CreateDirectChat(ctx *kp.Ctx) {
 		return
 	}
 
-	// Find target user by username
-	targetUser, err := h.userRepo.FindByUsername(ctx, username)
+	// Find target user by username (with caching)
+	targetUser, err := h.userService.GetUserByUsername(ctx, username)
 	if err != nil {
 		// response.NotFound(w, "User not found")
 		if !errors.As(err, &customError) {

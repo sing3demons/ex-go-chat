@@ -78,18 +78,24 @@ func main() {
 
 	// Initialize presence repository (choose between memory or Redis)
 	var presenceRepo repository.PresenceRepository
+	var roomCacheRepo repository.RoomCacheRepository
+	var userCacheRepo repository.UserCacheRepository
 	if redisClient != nil {
 		presenceRepo = repository.NewRedisPresenceRepository(redisClient)
 		messageCacheRepo = repository.NewRedisMessageCacheRepository(redisClient)
+		roomCacheRepo = repository.NewRedisRoomCacheRepository(redisClient)
+		userCacheRepo = repository.NewRedisUserCacheRepository(redisClient)
 		// typingRepo = repository.NewRedisTypingRepository(redisClient)
 		// sessionRepo = repository.NewRedisSessionRepository(redisClient)
 		// rateLimitRepo = repository.NewRedisRateLimitRepository(redisClient)
-		log.Info("Using Redis repositories")
+		log.Info("Using Redis repositories (including room and user cache)")
 	} else {
 		presenceRepo = repository.NewMemoryPresenceRepository()
 		// For memory implementations, we could create memory versions
 		// For now, set to nil to disable caching features
 		messageCacheRepo = nil
+		roomCacheRepo = repository.NewNoOpRoomCacheRepository()
+		userCacheRepo = repository.NewNoOpUserCacheRepository()
 		log.Info("Using memory presence repository, caching disabled")
 	}
 
@@ -100,8 +106,9 @@ func main() {
 	log.Info("JWT manager initialized")
 
 	// Initialize services
-	authService := service.NewAuthService(userRepo, jwtManager)
-	roomService := service.NewRoomService(roomRepo)
+	userService := service.NewUserService(userRepo, userCacheRepo)
+	authService := service.NewAuthService(userRepo, userService, jwtManager)
+	roomService := service.NewRoomService(roomRepo, roomCacheRepo)
 	messageService := service.NewMessageService(messageRepo, roomRepo, messageCacheRepo)
 	presenceService := service.NewPresenceService(presenceRepo, log)
 	notificationService := service.NewNotificationService(notificationRepo)
@@ -138,7 +145,7 @@ func main() {
 	roomHandler := handler.NewRoomHandler(roomService, authMiddleware, hub)
 	messageHandler := handler.NewMessageHandler(messageService, roomService, authMiddleware)
 	notificationHandler := handler.NewNotificationHandler(notificationService, authMiddleware)
-	userHandler := handler.NewUserHandler(userRepo, roomService, authMiddleware, hub)
+	userHandler := handler.NewUserHandler(userRepo, userService, roomService, authMiddleware, hub)
 	wsHandler := websocket.NewHandler(hub, authService, roomService, presenceService, log)
 	log.Info("Handlers initialized")
 

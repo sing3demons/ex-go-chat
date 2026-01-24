@@ -21,15 +21,17 @@ type AuthService interface {
 
 // authService implements AuthService
 type authService struct {
-	userRepo   repository.UserRepository
-	jwtManager *auth.JWTManager
+	userService UserService
+	userRepo    repository.UserRepository // Keep for Register (direct DB access)
+	jwtManager  *auth.JWTManager
 }
 
 // NewAuthService creates a new authentication service
-func NewAuthService(userRepo repository.UserRepository, jwtManager *auth.JWTManager) AuthService {
+func NewAuthService(userRepo repository.UserRepository, userService UserService, jwtManager *auth.JWTManager) AuthService {
 	return &authService{
-		userRepo:   userRepo,
-		jwtManager: jwtManager,
+		userRepo:    userRepo,
+		userService: userService,
+		jwtManager:  jwtManager,
 	}
 }
 
@@ -105,7 +107,8 @@ func (s *authService) Login(ctx context.Context, identifier, password, ssid stri
 	if strings.Contains(identifier, "@") {
 		user, err = s.userRepo.FindByEmail(ctx, identifier)
 	} else {
-		user, err = s.userRepo.FindByUsername(ctx, identifier)
+		// Use cached user service for username lookup
+		user, err = s.userService.GetUserByUsername(ctx, identifier)
 	}
 
 	if err != nil {
