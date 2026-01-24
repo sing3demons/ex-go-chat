@@ -237,11 +237,15 @@ func (c *Connection) AttachContext(parent context.Context) {
 
 // Close cancels the connection's context and closes the websocket.
 func (c *Connection) Close() {
-	mlog.L(c.ctx).Debug(logAction.APP_LOGIC("close"), "closing WebSocket connection"+c.Username)
+	log := mlog.L(c.ctx)
+	log.Debug(logAction.APP_LOGIC("close"), "closing WebSocket connection"+c.Username)
 
 	if c.cancel != nil {
 		c.cancel()
 	}
-	_ = c.Conn.WriteControl(websocket.CloseMessage, []byte{}, time.Now().Add(1*time.Second))
+	err := c.Conn.WriteControl(websocket.CloseMessage, []byte{}, time.Now().Add(1*time.Second))
+	if err != nil {
+		log.Error(logAction.APP_LOGIC("close"), "error sending close control message: "+err.Error())
+	}
 	c.Conn.Close()
 }

@@ -56,7 +56,7 @@ type LogEntry struct {
 }
 
 type ICustomLogger interface {
-	Init(useCase string, span_id string)
+	Init(useCase string, trace_id string, span_id string)
 	Info(action logAction.LoggerAction, data any, maskingData ...MaskRule)
 	Debug(action logAction.LoggerAction, data any, maskingData ...MaskRule)
 	Error(action logAction.LoggerAction, data any, maskingData ...MaskRule)
@@ -572,7 +572,7 @@ func (l *CustomLogger) Error(action logAction.LoggerAction, data any, maskingDat
 func (l *CustomLogger) Info(action logAction.LoggerAction, data any, maskingData ...MaskRule) {
 	l.log("INFO", action, data, maskingData...)
 }
-func (l *CustomLogger) Init(useCase, span_id string) {
+func (l *CustomLogger) Init(useCase, trace_id, span_id string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -583,7 +583,11 @@ func (l *CustomLogger) Init(useCase, span_id string) {
 		span_id = NewSpanID()
 	}
 	l.logEntry.SpanID = span_id
-	l.logEntry.TraceID = NewTraceID()
+	if trace_id == "" {
+		l.logEntry.TraceID = NewTraceID()
+	} else {
+		l.logEntry.TraceID = trace_id
+	}
 }
 
 func (l *CustomLogger) SetUseCase(useCase string) {
@@ -617,10 +621,8 @@ func (l *CustomLogger) SpanID() string {
 
 func (l *CustomLogger) IsEnd() bool {
 	if !l.logEntry.StartTime.IsZero() {
-		fmt.Println("===============>true")
 		return true
 	}
-	fmt.Println("===========> false")
 	return false
 }
 func (l *CustomLogger) Flush(code int, msg string) {

@@ -71,7 +71,7 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 	}
 
 	// Register user
-	user, _, err := h.authService.Register(ctx, req.Username, req.Email, req.Password)
+	user, _, err := h.authService.Register(ctx, req.Username, req.Email, req.Password, ctx.TraceID())
 	if err != nil {
 		// response.Error(w, err)
 		if !errors.As(err, &customError) {
@@ -106,6 +106,7 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 		Field: "body.password",
 		Type:  logger.MaskPassword,
 	}}
+	ssid := ctx.TraceID()
 	ctx.L("login", maskingBody...)
 	var customError *kp.Error
 
@@ -128,7 +129,7 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	}
 
 	// Login user
-	token, err := h.authService.Login(ctx, req.Identifier, req.Password)
+	token, err := h.authService.Login(ctx, req.Identifier, req.Password, ssid)
 	if err != nil {
 		// response.Error(w, err)
 		if !errors.As(err, &customError) {

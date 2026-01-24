@@ -7,6 +7,7 @@ import (
 
 	"realtime-chat-system/internal/service"
 	"realtime-chat-system/pkg/auth"
+	"realtime-chat-system/pkg/kp"
 	"realtime-chat-system/pkg/response"
 )
 
@@ -58,6 +59,9 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 
 		// Add claims to context
 		ctx := context.WithValue(r.Context(), UserClaimsKey, claims)
+		if claims.SSID != "" {
+			ctx = context.WithValue(ctx, kp.SessionID, claims.SSID)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

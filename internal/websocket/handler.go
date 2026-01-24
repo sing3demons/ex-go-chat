@@ -67,7 +67,7 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 	}
 
 	// Initialize logger for this WebSocket connection
-	ctx.Log.Init("connect_ws", logger.NewSpanID())
+	ctx.Log.Init("connect_ws", claims.SSID, logger.NewSpanID())
 	ctx.Log.AddMetadata("username", claims.Username)
 
 	// Create connection

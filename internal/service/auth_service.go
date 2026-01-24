@@ -14,8 +14,8 @@ import (
 
 // AuthService defines the interface for authentication operations
 type AuthService interface {
-	Register(ctx context.Context, username, email, password string) (*models.User, string, error)
-	Login(ctx context.Context, identifier, password string) (string, error)
+	Register(ctx context.Context, username, email, password, ssid string) (*models.User, string, error)
+	Login(ctx context.Context, identifier, password, ssid string) (string, error)
 	ValidateToken(ctx context.Context, token string) (*auth.Claims, error)
 }
 
@@ -34,7 +34,7 @@ func NewAuthService(userRepo repository.UserRepository, jwtManager *auth.JWTMana
 }
 
 // Register registers a new user
-func (s *authService) Register(ctx context.Context, username, email, password string) (*models.User, string, error) {
+func (s *authService) Register(ctx context.Context, username, email, password, ssid string) (*models.User, string, error) {
 	// Trim whitespace
 	username = strings.TrimSpace(username)
 	email = strings.TrimSpace(email)
@@ -76,7 +76,7 @@ func (s *authService) Register(ctx context.Context, username, email, password st
 	}
 
 	// Generate JWT token
-	token, err := s.jwtManager.GenerateToken(user.ID, user.Username)
+	token, err := s.jwtManager.GenerateToken(user.ID, user.Username, ssid)
 	if err != nil {
 		return nil, "", errors.ErrInternal("Failed to generate token")
 	}
@@ -85,7 +85,7 @@ func (s *authService) Register(ctx context.Context, username, email, password st
 }
 
 // Login authenticates a user and returns a JWT token
-func (s *authService) Login(ctx context.Context, identifier, password string) (string, error) {
+func (s *authService) Login(ctx context.Context, identifier, password, ssid string) (string, error) {
 	// Trim whitespace
 	identifier = strings.TrimSpace(identifier)
 
@@ -118,8 +118,8 @@ func (s *authService) Login(ctx context.Context, identifier, password string) (s
 		return "", errors.ErrInvalidCredentials()
 	}
 
-	// Generate JWT token
-	token, err := s.jwtManager.GenerateToken(user.ID, user.Username)
+	// Generate JWT token ssid
+	token, err := s.jwtManager.GenerateToken(user.ID, user.Username, ssid)
 	if err != nil {
 		return "", errors.ErrInternal("Failed to generate token")
 	}

@@ -144,6 +144,7 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 	defer h.mu.Unlock()
 
 	if existingConn, exists := h.connections[conn.UserID]; exists && existingConn == conn {
+		log := mlog.L(conn.ctx)
 		delete(h.connections, conn.UserID)
 
 		// Ensure the websocket and context are closed
@@ -158,11 +159,12 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 		}
 
 		h.log.Infof("User %s disconnected (total: %d)", conn.UserID, len(h.connections))
-		mlog.L(conn.ctx).Debug(logAction.APP_LOGIC(fmt.Sprintf("User %s disconnected (total: %d)", conn.UserID, len(h.connections))), "User "+conn.UserID+" disconnected")
+		log.Debug(logAction.APP_LOGIC(fmt.Sprintf("User %s disconnected (total: %d)", conn.UserID, len(h.connections))), "User "+conn.UserID+" disconnected")
 
 		// Mark user as offline
 		if h.presenceService != nil {
 			h.presenceService.SetOffline(conn.ctx, conn.UserID)
+			// flush log with offline status
 		}
 
 		// Broadcast presence update to user's rooms

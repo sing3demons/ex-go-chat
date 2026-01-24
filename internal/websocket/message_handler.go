@@ -41,6 +41,9 @@ func NewWSMessageHandler(
 // HandleMessage handles an incoming WebSocket message
 func (h *WSMessageHandler) HandleMessage(conn *Connection, msg *WSMessage) {
 	ctx := context.Background()
+	if conn.ctx != nil {
+		ctx = conn.ctx
+	}
 
 	switch msg.Type {
 	case MessageTypeMessage:
