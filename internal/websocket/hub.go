@@ -3,10 +3,13 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
+	"realtime-chat-system/pkg/logAction"
 	"realtime-chat-system/pkg/logger"
+	"realtime-chat-system/pkg/mlog"
 )
 
 // IncomingMessage represents an incoming WebSocket message
@@ -123,11 +126,13 @@ func (h *Hub) registerConnection(conn *Connection) {
 
 	// Close existing connection if any
 	if existingConn, exists := h.connections[conn.UserID]; exists {
-		close(existingConn.Send)
+		// Gracefully cancel and close the previous connection to avoid leaks
+		existingConn.Close()
 	}
 
 	h.connections[conn.UserID] = conn
 	h.log.Infof("User %s connected (total: %d)", conn.UserID, len(h.connections))
+	mlog.L(conn.ctx).Debug(logAction.APP_LOGIC(fmt.Sprintf("User %s connected (total: %d)", conn.UserID, len(h.connections))), "User "+conn.UserID+" connected")
 
 	// Broadcast presence update to user's rooms
 	h.broadcastPresenceUpdate(conn.UserID, true)
@@ -141,6 +146,9 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 	if existingConn, exists := h.connections[conn.UserID]; exists && existingConn == conn {
 		delete(h.connections, conn.UserID)
 
+		// Ensure the websocket and context are closed
+		conn.Close()
+
 		// Safely close the channel
 		select {
 		case <-conn.Send:
@@ -150,10 +158,11 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 		}
 
 		h.log.Infof("User %s disconnected (total: %d)", conn.UserID, len(h.connections))
+		mlog.L(conn.ctx).Debug(logAction.APP_LOGIC(fmt.Sprintf("User %s disconnected (total: %d)", conn.UserID, len(h.connections))), "User "+conn.UserID+" disconnected")
 
 		// Mark user as offline
 		if h.presenceService != nil {
-			h.presenceService.SetOffline(context.Background(), conn.UserID)
+			h.presenceService.SetOffline(conn.ctx, conn.UserID)
 		}
 
 		// Broadcast presence update to user's rooms

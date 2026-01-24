@@ -1,11 +1,14 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
 
+	"realtime-chat-system/pkg/logAction"
 	"realtime-chat-system/pkg/logger"
+	"realtime-chat-system/pkg/mlog"
 
 	"github.com/gorilla/websocket"
 )
@@ -19,10 +22,14 @@ type Connection struct {
 	Rooms    map[string]bool // roomID -> subscribed
 	mu       sync.RWMutex
 	log      *logger.Logger
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // NewConnection creates a new WebSocket connection
-func NewConnection(userID, username string, conn *websocket.Conn, log *logger.Logger) *Connection {
+func NewConnection(c context.Context, userID, username string, conn *websocket.Conn, log *logger.Logger) *Connection {
+	// Create an internal context so callers don't need to pass one.
+	ctx, cancel := context.WithCancel(c)
 	return &Connection{
 		UserID:   userID,
 		Username: username,
@@ -30,6 +37,8 @@ func NewConnection(userID, username string, conn *websocket.Conn, log *logger.Lo
 		Send:     make(chan []byte, 256),
 		Rooms:    make(map[string]bool),
 		log:      log,
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 }
 
@@ -49,10 +58,30 @@ func (c *Connection) ReadPump(hub *Hub) {
 
 	// Set close handler to detect when client closes connection
 	c.Conn.SetCloseHandler(func(code int, text string) error {
+		// Propagate closure to context to allow other goroutines to exit.
+		if c.cancel != nil {
+			c.cancel()
+		}
 		return nil
 	})
 
+	// Ensure blocking reads are interrupted when context is canceled.
+	doneCloser := make(chan struct{})
+	go func() {
+		select {
+		case <-c.ctx.Done():
+			// Trigger read unblock by initiating a close.
+			_ = c.Conn.WriteControl(websocket.CloseMessage, []byte{}, time.Now().Add(1*time.Second))
+			c.Conn.Close()
+		case <-doneCloser:
+			// ReadPump finished normally
+		}
+	}()
+
 	for {
+		if c.ctx.Err() != nil {
+			break
+		}
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -75,6 +104,8 @@ func (c *Connection) ReadPump(hub *Hub) {
 			Message:    &wsMsg,
 		}
 	}
+
+	close(doneCloser)
 }
 
 // WritePump pumps messages from the hub to the WebSocket connection
@@ -88,6 +119,11 @@ func (c *Connection) WritePump() {
 
 	for {
 		select {
+		case <-c.ctx.Done():
+			// Context canceled; attempt graceful close.
+			c.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_ = c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
 		case message, ok := <-c.Send:
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
@@ -157,6 +193,9 @@ func (c *Connection) GetRooms() []string {
 
 // SendMessage sends a message to the connection
 func (c *Connection) SendMessage(msg *WSMessage) error {
+	if c.ctx.Err() != nil {
+		return websocket.ErrCloseSent
+	}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -181,4 +220,28 @@ func (c *Connection) SendError(code, message string) {
 		Type:    MessageTypeError,
 		Payload: payload,
 	})
+}
+
+// AttachContext allows a parent context to be attached to the connection.
+// The internal context will derive from the provided one, enabling coordinated cancellation.
+func (c *Connection) AttachContext(parent context.Context) {
+	if parent == nil {
+		return
+	}
+	// Cancel existing if present to avoid leaks.
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.ctx, c.cancel = context.WithCancel(parent)
+}
+
+// Close cancels the connection's context and closes the websocket.
+func (c *Connection) Close() {
+	mlog.L(c.ctx).Debug(logAction.APP_LOGIC("close"), "closing WebSocket connection"+c.Username)
+
+	if c.cancel != nil {
+		c.cancel()
+	}
+	_ = c.Conn.WriteControl(websocket.CloseMessage, []byte{}, time.Now().Add(1*time.Second))
+	c.Conn.Close()
 }

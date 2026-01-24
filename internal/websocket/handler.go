@@ -71,7 +71,7 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 	ctx.Log.AddMetadata("username", claims.Username)
 
 	// Create connection
-	wsConn := NewConnection(claims.UserID, claims.Username, conn, h.log)
+	wsConn := NewConnection(ctx, claims.UserID, claims.Username, conn, h.log)
 	ctx.Log.Info(logAction.INBOUND(claims.Username+" connect to WebSocket"), map[string]any{
 		"headers": ctx.Headers(),
 		"query":   ctx.QueryString(),
