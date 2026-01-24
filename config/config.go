@@ -54,6 +54,7 @@ type JWTConfig struct {
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
+			Name:            getEnv("SERVER_NAME", "Real-time Chat System"),
 			Port:            getEnv("SERVER_PORT", "8080"),
 			ReadTimeout:     getDurationEnv("SERVER_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout:    getDurationEnv("SERVER_WRITE_TIMEOUT", 15*time.Second),

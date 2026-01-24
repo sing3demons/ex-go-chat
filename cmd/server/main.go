@@ -108,7 +108,7 @@ func main() {
 	log.Info("Services initialized")
 
 	// Initialize WebSocket hub and message handler
-	hub := websocket.NewHub(nil, presenceService, log) // We'll set the message handler after creating it
+	hub := websocket.NewHub(presenceService, log) // We'll set the message handler after creating it
 	wsMessageHandler := websocket.NewWSMessageHandler(hub, messageService, roomService, presenceService, notificationService, log)
 	hub.SetMessageHandler(wsMessageHandler)
 	log.Info("WebSocket hub initialized")

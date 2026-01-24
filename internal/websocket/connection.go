@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"realtime-chat-system/pkg/logAction"
-	"realtime-chat-system/pkg/logger"
 	"realtime-chat-system/pkg/mlog"
 
 	"github.com/gorilla/websocket"
@@ -21,13 +20,12 @@ type Connection struct {
 	Send     chan []byte
 	Rooms    map[string]bool // roomID -> subscribed
 	mu       sync.RWMutex
-	log      *logger.Logger
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
 
 // NewConnection creates a new WebSocket connection
-func NewConnection(c context.Context, userID, username string, conn *websocket.Conn, log *logger.Logger) *Connection {
+func NewConnection(c context.Context, userID, username string, conn *websocket.Conn) *Connection {
 	// Create an internal context so callers don't need to pass one.
 	ctx, cancel := context.WithCancel(c)
 	return &Connection{
@@ -36,7 +34,6 @@ func NewConnection(c context.Context, userID, username string, conn *websocket.C
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
 		Rooms:    make(map[string]bool),
-		log:      log,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -48,6 +45,8 @@ func (c *Connection) ReadPump(hub *Hub) {
 		hub.Unregister <- c
 		c.Conn.Close()
 	}()
+
+	log := mlog.L(c.ctx)
 
 	// Set read deadline to 30 seconds (ping interval 25s + 5s buffer)
 	c.Conn.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -85,7 +84,8 @@ func (c *Connection) ReadPump(hub *Hub) {
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				c.log.Errorf("WebSocket error: %v", err)
+				// c.log.Errorf("WebSocket error: %v", err)
+				log.Error(logAction.APP_LOGIC("read_pump"), "WebSocket error: "+err.Error())
 			}
 			break
 		}
@@ -93,7 +93,7 @@ func (c *Connection) ReadPump(hub *Hub) {
 		// Parse message
 		var wsMsg WSMessage
 		if err := json.Unmarshal(message, &wsMsg); err != nil {
-			c.log.Errorf("Failed to parse WebSocket message: %v", err)
+			log.Error(logAction.APP_LOGIC("read_pump"), "Failed to parse WebSocket message: "+err.Error())
 			c.SendError("INVALID_MESSAGE", "Invalid message format")
 			continue
 		}

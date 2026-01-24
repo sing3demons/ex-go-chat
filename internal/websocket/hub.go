@@ -73,7 +73,7 @@ type PresenceService interface {
 }
 
 // NewHub creates a new Hub
-func NewHub(messageHandler MessageHandler, presenceService PresenceService, log *logger.Logger) *Hub {
+func NewHub(presenceService PresenceService, log *logger.Logger) *Hub {
 	return &Hub{
 		connections:     make(map[string]*Connection),
 		Register:        make(chan *Connection),
@@ -81,7 +81,7 @@ func NewHub(messageHandler MessageHandler, presenceService PresenceService, log 
 		HandleMessage:   make(chan *IncomingMessage, 256),
 		BroadcastToRoom: make(chan *RoomBroadcast, 256),
 		BroadcastToUser: make(chan *UserBroadcast, 256),
-		messageHandler:  messageHandler,
+		messageHandler:  nil,
 		presenceService: presenceService,
 		log:             log,
 	}
