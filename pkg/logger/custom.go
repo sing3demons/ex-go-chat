@@ -36,23 +36,21 @@ type LogEntry struct {
 	TraceID   string    `json:"trace_id,omitempty"` //request ทั้งเส้น
 	SpanID    string    `json:"span_id,omitempty"`  // step ย่อย (เช่น db call)
 	ParentID  string    `json:"parent_id,omitempty"`
-	Message   string    `json:"message,omitempty"`
 	UseCase   string    `json:"usecase,omitempty"` //login,register
-
+	
 	Action            string `json:"action,omitempty"`
 	ActionDescription string `json:"action_description,omitempty"`
 	SubAction         string `json:"sub_action,omitempty"`
-
-	Dependency string `json:"dependency,omitempty"`
-
+	
 	StartTime time.Time `json:"-"`
-
+	Dependency string `json:"dependency,omitempty"`
 	ResponseTime   int64          `json:"responseTime,omitempty"`
 	ResultCode     string         `json:"resultCode,omitempty"`
 	ResultFlag     string         `json:"resultFlag,omitempty"`
 	AdditionalInfo map[string]any `json:"additionalInfo,omitempty"`
-
+	
 	User string `json:"user,omitempty"`
+	Message   string    `json:"message,omitempty"`
 }
 
 type ICustomLogger interface {
