@@ -13,6 +13,7 @@ import (
 // MessageService defines the interface for message operations
 type MessageService interface {
 	SendMessage(ctx context.Context, roomID, senderID, content string) (*models.Message, error)
+	SendMessageWithRoom(ctx context.Context, room *models.Room, senderID, content string) (*models.Message, error)
 	GetMessages(ctx context.Context, roomID string, limit, offset int) ([]*models.Message, error)
 	GetMessageByID(ctx context.Context, messageID string) (*models.Message, error)
 	UpdateDeliveryStatus(ctx context.Context, messageID, userID string) error
@@ -39,15 +40,23 @@ func NewMessageService(messageRepo repository.MessageRepository, roomRepo reposi
 
 // SendMessage sends a new message in a room
 func (s *messageService) SendMessage(ctx context.Context, roomID, senderID, content string) (*models.Message, error) {
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.SendMessageWithRoom(ctx, room, senderID, content)
+}
+
+// SendMessageWithRoom sends a new message using a pre-fetched room to avoid duplicate lookups.
+func (s *messageService) SendMessageWithRoom(ctx context.Context, room *models.Room, senderID, content string) (*models.Message, error) {
 	// Validate content
 	if err := validator.ValidateMessageContent(content); err != nil {
 		return nil, err
 	}
 
-	// Get room to verify membership and get members list
-	room, err := s.roomRepo.FindByID(ctx, roomID)
-	if err != nil {
-		return nil, err
+	if room == nil {
+		return nil, errors.ErrInvalidInput("room is nil")
 	}
 
 	// Verify sender is a member
@@ -78,7 +87,7 @@ func (s *messageService) SendMessage(ctx context.Context, roomID, senderID, cont
 	// Create message
 	now := time.Now()
 	message := &models.Message{
-		RoomID:    roomID,
+		RoomID:    room.ID,
 		SenderID:  senderID,
 		Content:   content,
 		CreatedAt: now,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"realtime-chat-system/internal/models"
 	"realtime-chat-system/internal/service"
 	"realtime-chat-system/pkg/logger"
 )
@@ -77,21 +78,22 @@ func (h *WSMessageHandler) handleChatMessage(ctx context.Context, conn *Connecti
 		return
 	}
 
-	// Verify room membership
-	isMember, err := h.roomService.IsMember(ctx, msg.RoomID, conn.UserID)
+	// Fetch room once and reuse for membership check and downstream operations
+	room, err := h.roomService.GetRoom(ctx, msg.RoomID)
 	if err != nil {
-		h.log.Errorf("Failed to check room membership: %v", err)
-		h.sendError(conn, "INTERNAL_ERROR", "Failed to verify room membership")
+		h.log.Errorf("Failed to get room %s: %v", msg.RoomID, err)
+		h.sendError(conn, "INTERNAL_ERROR", "Failed to load room")
 		return
 	}
-	if !isMember {
+
+	if !isMember(room, conn.UserID) {
 		h.log.Warnf("User %s attempted to send message to room %s without membership", conn.UserID, msg.RoomID)
 		h.sendError(conn, "UNAUTHORIZED", "You are not a member of this room")
 		return
 	}
 
 	// Save message to database
-	message, err := h.messageService.SendMessage(ctx, msg.RoomID, conn.UserID, payload.Content)
+	message, err := h.messageService.SendMessageWithRoom(ctx, room, conn.UserID, payload.Content)
 	if err != nil {
 		h.log.Errorf("Failed to save message: %v", err)
 		h.sendError(conn, "INTERNAL_ERROR", "Failed to send message")
@@ -119,7 +121,7 @@ func (h *WSMessageHandler) handleChatMessage(ctx context.Context, conn *Connecti
 	}
 
 	// Create notifications for offline members
-	go h.createNotificationsForOfflineMembers(ctx, msg.RoomID, message.ID, conn.UserID)
+	go h.createNotificationsForOfflineMembers(ctx, room, message.ID, conn.UserID)
 
 	h.log.Infof("Message sent to room %s by user %s", msg.RoomID, conn.UserID)
 }
@@ -341,14 +343,7 @@ func (h *WSMessageHandler) sendError(conn *Connection, code, message string) {
 }
 
 // createNotificationsForOfflineMembers creates notifications for offline room members
-func (h *WSMessageHandler) createNotificationsForOfflineMembers(ctx context.Context, roomID, messageID, senderID string) {
-	// Get room to find members
-	room, err := h.roomService.GetRoom(ctx, roomID)
-	if err != nil {
-		h.log.Errorf("Failed to get room for notifications: %v", err)
-		return
-	}
-
+func (h *WSMessageHandler) createNotificationsForOfflineMembers(ctx context.Context, room *models.Room, messageID, senderID string) {
 	// Create notification for each member (except sender)
 	for _, memberID := range room.Members {
 		if memberID == senderID {
@@ -358,16 +353,29 @@ func (h *WSMessageHandler) createNotificationsForOfflineMembers(ctx context.Cont
 		// Check if member is online AND subscribed to this room
 		isOnlineAndSubscribed := false
 		if conn, exists := h.hub.GetConnection(memberID); exists {
-			isOnlineAndSubscribed = conn.IsSubscribedToRoom(roomID)
+			isOnlineAndSubscribed = conn.IsSubscribedToRoom(room.ID)
 		}
 
 		// Create notification if user is not online or not subscribed to this room
 		if !isOnlineAndSubscribed {
-			if err := h.notificationService.CreateNotification(ctx, memberID, roomID, messageID, "message"); err != nil {
+			if err := h.notificationService.CreateNotification(ctx, memberID, room.ID, messageID, "message"); err != nil {
 				h.log.Errorf("Failed to create notification for user %s: %v", memberID, err)
 			} else {
-				h.log.Infof("Created notification for user %s in room %s", memberID, roomID)
+				h.log.Infof("Created notification for user %s in room %s", memberID, room.ID)
 			}
 		}
 	}
+}
+
+// isMember checks membership within a provided room without extra DB calls.
+func isMember(room *models.Room, userID string) bool {
+	if room == nil {
+		return false
+	}
+	for _, member := range room.Members {
+		if member == userID {
+			return true
+		}
+	}
+	return false
 }

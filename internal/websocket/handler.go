@@ -42,10 +42,14 @@ func NewHandler(hub *Hub, authService service.AuthService, roomService service.R
 
 // ServeWS handles WebSocket requests
 func (h *Handler) ServeWS(ctx *kp.Ctx) {
+		// Initialize logger for this WebSocket connection
+		cmd := "chat_ws"
+
 	// Get token from query parameter
 	// token := ctx.Request().URL.Query().Get("token")
 	token := ctx.Query("token")
 	if token == "" {
+		ctx.L(cmd)
 		h.log.Error("WebSocket connection rejected: missing token")
 		ctx.JSON(http.StatusUnauthorized, "Missing token")
 		return
@@ -54,6 +58,7 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 	// Validate token
 	claims, err := h.authService.ValidateToken(ctx, token)
 	if err != nil {
+		ctx.L(cmd)
 		h.log.Errorf("WebSocket connection rejected: invalid token - %v", err)
 		ctx.JSON(http.StatusUnauthorized, "Invalid token")
 		return
@@ -65,9 +70,8 @@ func (h *Handler) ServeWS(ctx *kp.Ctx) {
 		h.log.Errorf("Failed to upgrade WebSocket connection: %v", err)
 		return
 	}
-
 	// Initialize logger for this WebSocket connection
-	ctx.Log.Init("connect_ws", claims.SSID, logger.NewSpanID())
+	ctx.Log.Init(cmd, claims.SSID, logger.NewSpanID())
 	ctx.Log.AddMetadata("username", claims.Username)
 
 	// Create connection
