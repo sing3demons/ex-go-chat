@@ -17,6 +17,7 @@ type MessageRepository interface {
 	Create(ctx context.Context, message *models.Message) error
 	FindByID(ctx context.Context, id string) (*models.Message, error)
 	FindByRoom(ctx context.Context, roomID string, limit, offset int) ([]*models.Message, error)
+	FindByRoomProjection(ctx context.Context, roomID string, projection []string, limit, offset int) ([]*models.Message, error)
 	Update(ctx context.Context, message *models.Message) error
 	Delete(ctx context.Context, messageID string) error
 }
@@ -91,6 +92,43 @@ func (r *messageRepository) FindByRoom(ctx context.Context, roomID string, limit
 		SetLimit(int64(limit)).
 		SetSkip(int64(offset)).
 		SetSort(bson.D{{Key: "createdAt", Value: -1}}) // Sort by createdAt descending (newest first)
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, errors.ErrDatabase(err)
+	}
+	defer cursor.Close(ctx)
+
+	var messages []*models.Message
+	if err := cursor.All(ctx, &messages); err != nil {
+		return nil, errors.ErrDatabase(err)
+	}
+
+	return messages, nil
+}
+
+// FindByRoomProjection finds messages in a room with projection (only load specified fields)
+// This is more efficient when you don't need all fields (e.g., skip status)
+func (r *messageRepository) FindByRoomProjection(ctx context.Context, roomID string, projection []string, limit, offset int) ([]*models.Message, error) {
+	filter := bson.M{"roomId": roomID}
+
+	// Set default limit if not provided
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// Create projection bson
+	projectionBson := bson.M{}
+	for _, field := range projection {
+		projectionBson[field] = 1
+	}
+
+	// Create options for pagination, sorting, and projection
+	opts := options.Find().
+		SetLimit(int64(limit)).
+		SetSkip(int64(offset)).
+		SetSort(bson.D{{Key: "createdAt", Value: -1}}). // Sort by createdAt descending (newest first)
+		SetProjection(projectionBson)
 
 	cursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {

@@ -103,6 +103,30 @@ func (m *MongoDB) CreateIndexes(ctx context.Context) error {
 		return fmt.Errorf("failed to create messages indexes: %w", err)
 	}
 
+	// Message Status collection indexes (for separated status tracking)
+	messageStatusCollection := m.Database.Collection("messageStatus")
+	_, err = messageStatusCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "messageId", Value: 1},
+				{Key: "userId", Value: 1},
+			},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys: bson.D{{Key: "messageId", Value: 1}},
+		},
+		{
+			Keys: bson.D{
+				{Key: "userId", Value: 1},
+				{Key: "updatedAt", Value: -1},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create message status indexes: %w", err)
+	}
+
 	// Notifications collection indexes
 	notificationsCollection := m.Database.Collection("notifications")
 	_, err = notificationsCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
