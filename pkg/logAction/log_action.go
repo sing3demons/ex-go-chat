@@ -25,6 +25,9 @@ const (
 	DB_UPDATE DBActionEnum = "UPDATE"
 	DB_DELETE DBActionEnum = "DELETE"
 	DB_NONE   DBActionEnum = "NONE"
+
+	DB_BULK_UPDATE DBActionEnum = "BULK_UPDATE"
+	DB_UPSERT      DBActionEnum = "UPSERT"
 )
 
 type LoggerAction struct {
