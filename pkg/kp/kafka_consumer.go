@@ -28,13 +28,14 @@ type KafkaConsumer struct {
 }
 
 // NewKafkaConsumer creates a new Kafka consumer
-func NewKafkaConsumer(cfg *KafkaConfig, config ConsumerConfig) (*KafkaConsumer, error) {
+func NewKafkaConsumer(dialer *kafka.Dialer, cfg *KafkaConfig, config ConsumerConfig) (*KafkaConsumer, error) {
 	brokerAddrs := parseBrokers(cfg.Brokers)
 	if len(brokerAddrs) == 0 {
 		return nil, errors.New("no kafka brokers provided")
 	}
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
+		Dialer:         dialer,
 		Brokers:        brokerAddrs,
 		Topic:          config.Topic,
 		GroupID:        cfg.GroupID,
@@ -57,13 +58,6 @@ func parseBrokers(brokers string) []string {
 		}
 	}
 	return out
-}
-
-// Subscribe subscribes to a topic
-func (kc *KafkaConsumer) Subscribe(topics []string) error {
-	// kafka-go reader is already configured with topic in NewKafkaConsumer
-	// No additional subscription needed
-	return nil
 }
 
 // Close closes the consumer

@@ -45,11 +45,12 @@ const (
 )
 
 type Ctx struct {
-	Res      http.ResponseWriter
-	Req      *http.Request
-	Cfg      *config.Config
-	Log      logger.ICustomLogger
-	validate *validator.Validate
+	Res          http.ResponseWriter
+	Req          *http.Request
+	KafkaWriters Writer
+	Cfg          *config.Config
+	Log          logger.ICustomLogger
+	validate     *validator.Validate
 }
 
 type ICtx interface {
@@ -194,15 +195,41 @@ func (c *Ctx) genTransactionID() string {
 	return tid
 }
 
-func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.Config, csLog logger.ICustomLogger) ICtx {
+type Request struct {
+	*http.Request
+	kafkaWriters Writer
+}
+
+// wrap http.Request to Request
+func newRequest(req *http.Request, writers Writer) *Request {
+	return &Request{
+		Request:      req,
+		kafkaWriters: writers,
+	}
+}
+
+func (req *Request) GetKafkaWriters() Writer {
+	return req.kafkaWriters
+}
+
+// unwrap Request to http.Request but keep kafkaWriters
+func (req *Request) UnwrapRequest() *http.Request {
+	return req.Request
+}
+
+func newMuxContext(w http.ResponseWriter, customReq *Request, cfg *config.Config, csLog logger.ICustomLogger) ICtx {
+	//
+	r := customReq.UnwrapRequest()
+
 	// set to context
 	r = r.WithContext(context.WithValue(r.Context(), logger.LoggerKey, csLog))
 	myCtx := &Ctx{
-		Res:      w,
-		Req:      r,
-		Cfg:      cfg,
-		Log:      csLog,
-		validate: validator.New(),
+		Res:          w,
+		Req:          r,
+		KafkaWriters: customReq.GetKafkaWriters(),
+		Cfg:          cfg,
+		Log:          csLog,
+		validate:     validator.New(),
 	}
 	// myCtx.genTransactionID()
 
@@ -217,9 +244,25 @@ func (c *Ctx) Context() context.Context {
 	return c.Req.Context()
 }
 func (c *Ctx) Params(name string) string {
+	// For Kafka requests, check context values first
+	if c.Req.Method == "KAFKA" {
+		if val, ok := c.Value(CtxKey("kafka." + name)).(string); ok {
+			return val
+		}
+	}
+	// Fall back to path parameters for HTTP requests
 	return c.Req.PathValue(name)
 }
 func (c *Ctx) Query(name string) string {
+	// For Kafka requests, check context values first
+	if c.Req.Method == "KAFKA" {
+		if val, ok := c.Value(CtxKey("kafka." + name)).(string); ok {
+			return val
+		}
+		// Return empty for Kafka if not found in context
+		return ""
+	}
+	// For HTTP requests, get from URL query parameters
 	return c.Req.URL.Query().Get(name)
 }
 func (c *Ctx) Bind(v any) error {
