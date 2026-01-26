@@ -15,17 +15,31 @@ import (
 
 	"realtime-chat-system/config"
 	"realtime-chat-system/pkg/logger"
+
+	"github.com/segmentio/kafka-go"
 )
 
 type MyHandler func(ctx *Ctx)
 type HandleFunc func(http.Handler) http.Handler
 type Middleware HandleFunc
 
+type KafkaConfig struct {
+	Brokers        string
+	RequestTimeout time.Duration
+	RetryBackoff   time.Duration
+	MaxRetries     int
+	GroupID        string
+}
+
 type Microservice struct {
-	config       *config.Config
-	mux          *http.ServeMux
-	middlewares  []Middleware
-	loggerConfig logger.LoggerConfig
+	config         *config.Config
+	mux            *http.ServeMux
+	middlewares    []Middleware
+	loggerConfig   logger.LoggerConfig
+	kafkaConfig    *KafkaConfig
+	kafkaHandlers  map[string]KafkaConsumerHandler // topic -> handler
+	kafkaConsumers []*KafkaConsumer                // running consumers
+	mu             sync.RWMutex
 }
 type IMicroservice interface {
 	Start()
@@ -44,23 +58,81 @@ type IMicroservice interface {
 	// multiple methods (GET, POST, PUT, DELETE, PATCH)
 	// Any(path string, handler MyHandler, middlewares ...Middleware)
 	Match(methods, path string, handler MyHandler, middlewares ...Middleware)
+
+	// Kafka consumer support
+	Consume(topic string, handler KafkaConsumerHandler) error
 }
 
 func NewMicroservice(cfg *config.Config, loggerConfig logger.LoggerConfig) IMicroservice {
-	return &Microservice{
-		config:       cfg,
-		mux:          http.NewServeMux(),
-		loggerConfig: loggerConfig,
+	ms := &Microservice{
+		config:         cfg,
+		mux:            http.NewServeMux(),
+		loggerConfig:   loggerConfig,
+		kafkaHandlers:  make(map[string]KafkaConsumerHandler),
+		kafkaConsumers: make([]*KafkaConsumer, 0),
 	}
+
+	ms.ConnectKafka(KafkaConfig{})
+
+	return ms
 }
 
-// func (m *Microservice) preHandle(final http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc {
-// 	for _, mw := range middlewares {
-// 		fmt.Println("applying middleware")
-// 		final = mw(final).ServeHTTP
-// 	}
-// 	return final
-// }
+func setupDialer(conf *KafkaConfig) (*kafka.Dialer, error) {
+	dialer := &kafka.Dialer{
+		Timeout:   10 * time.Second,
+		DualStack: true,
+	}
+
+	// if conf.SecurityProtocol == protocolSASL || conf.SecurityProtocol == protocolSASLSSL {
+	// 	mechanism, err := getSASLMechanism(conf.SASLMechanism, conf.SASLUser, conf.SASLPassword)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+
+	// 	dialer.SASLMechanism = mechanism
+	// }
+
+	// if conf.SecurityProtocol == "SSL" || conf.SecurityProtocol == "SASL_SSL" {
+	// 	tlsConfig, err := createTLSConfig(&conf.TLS)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+
+	// 	dialer.TLS = tlsConfig
+	// }
+
+	return dialer, nil
+}
+
+// ConnectKafka sets Kafka brokers configuration (comma-separated list is supported)
+func (m *Microservice) ConnectKafka(cfg KafkaConfig) error {
+	if strings.TrimSpace(cfg.Brokers) == "" {
+		return nil
+	}
+	// Validate brokers
+	if cfg.Brokers == "" {
+		return errors.New("brokers cannot be empty")
+	}
+
+	// Set defaults
+	if cfg.RequestTimeout == 0 {
+		cfg.RequestTimeout = 10 * time.Second
+	}
+	if cfg.RetryBackoff == 0 {
+		cfg.RetryBackoff = 100 * time.Millisecond
+	}
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = 3
+	}
+
+	m.mu.Lock()
+	m.kafkaConfig = &cfg
+	m.mu.Unlock()
+
+	log.Printf("Kafka configured with brokers: %s", cfg.Brokers)
+
+	return nil
+}
 
 func (m *Microservice) Start() {
 	var handler http.Handler = m.mux
@@ -68,41 +140,52 @@ func (m *Microservice) Start() {
 		handler = mw(handler)
 	}
 
-	// 	ReadTimeout:  cfg.Server.ReadTimeout,
-	// 	WriteTimeout: cfg.Server.WriteTimeout,
 	srv := http.Server{
 		Addr:         ":" + m.config.Server.Port,
 		Handler:      handler,
-		ReadTimeout:  60 * time.Second, // เพิ่มจาก default
-		WriteTimeout: 60 * time.Second, // เพิ่มจาก default
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// wg
-	var wg sync.WaitGroup
-	wg.Add(1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	// start Kafka consumers first (non-blocking)
+	m.startKafkaConsumers(ctx)
+
+	var wg sync.WaitGroup
+
+	// Start HTTP Server
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		log.Printf("starting server on %s", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("server listen err: %v", err)
 		}
 	}()
 
+	// Graceful Shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	log.Println("shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// stop Kafka consumers
+	cancel()
+	m.closeKafkaConsumers()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	// Shutdown HTTP server
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("server forced to shutdown: %v", err)
 		os.Exit(1)
 	}
+
 	wg.Wait()
 	log.Println("server exited")
 }
@@ -174,4 +257,79 @@ func (m *Microservice) Match(methods, path string, handler MyHandler, middleware
 		// m.mux.HandleFunc(fmt.Sprintf("%s %s", strings.ToUpper(method), path), m.preHandle(handler, middlewares...))
 		m.add(strings.ToUpper(method), path, handler, middlewares...)
 	}
+}
+
+func (m *Microservice) isKafkaConfigured() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.kafkaConfig != nil
+}
+
+// startKafkaConsumers spins up all registered consumers with the given context
+func (m *Microservice) startKafkaConsumers(ctx context.Context) {
+	m.mu.RLock()
+	if m.kafkaConfig == nil || len(m.kafkaConsumers) == 0 {
+		m.mu.RUnlock()
+		return
+	}
+	consumers := append([]*KafkaConsumer(nil), m.kafkaConsumers...)
+	m.mu.RUnlock()
+
+	kafkaCtx := m.createKafkaContext()
+	for _, consumer := range consumers {
+		consumer.Run(ctx, kafkaCtx)
+	}
+}
+
+// closeKafkaConsumers shuts down all consumers
+func (m *Microservice) closeKafkaConsumers() {
+	m.mu.RLock()
+	consumers := append([]*KafkaConsumer(nil), m.kafkaConsumers...)
+	m.mu.RUnlock()
+
+	for i, consumer := range consumers {
+		if err := consumer.Close(); err != nil {
+			log.Printf("error closing kafka consumer %d: %v", i, err)
+		}
+	}
+}
+
+// createKafkaContext builds a base context/logger for Kafka handlers
+func (m *Microservice) createKafkaContext() *Ctx {
+	requestLogger := logger.NewCustomLogger(m.config.Server.Name, m.loggerConfig)
+	return &Ctx{
+		Cfg: m.config,
+		Log: requestLogger,
+	}
+}
+
+// Consume registers a Kafka consumer for the given topic
+func (m *Microservice) Consume(topic string, handler KafkaConsumerHandler) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.isKafkaConfigured() {
+		return errors.New("kafka config not set")
+	}
+
+	// Create Kafka consumer
+	kc, err := NewKafkaConsumer(m.kafkaConfig, ConsumerConfig{
+		Topic:   topic,
+		Handler: handler,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Subscribe to topic
+	if err := kc.Subscribe([]string{topic}); err != nil {
+		return err
+	}
+
+	// Store handler and consumer
+	m.kafkaHandlers[topic] = handler
+	m.kafkaConsumers = append(m.kafkaConsumers, kc)
+
+	log.Printf("Kafka consumer registered for topic: %s with group: %s", topic, m.kafkaConfig.GroupID)
+	return nil
 }
