@@ -465,10 +465,10 @@ func (c *Ctx) GetLocation() string {
 	}
 
 	// Try to get city information first
-	city, err := geoReader.City(context.Background(), ip)
+	city, err := geoReader.City(ip)
 	if err != nil {
 		// Fallback to country lookup
-		country, err := geoReader.Country(context.Background(), ip)
+		country, err := geoReader.Country(ip)
 		if err != nil {
 			return "Unknown"
 		}
