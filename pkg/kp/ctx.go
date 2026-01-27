@@ -11,6 +11,7 @@ import (
 	"io"
 	"maps"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,6 +25,8 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/oschwald/geoip2-golang"
+	"github.com/ua-parser/uap-go/uaparser"
 )
 
 const MaxBodySize = 10 << 20 // 10 MB
@@ -43,6 +46,25 @@ const (
 	SessionID     CtxKey = "x-session-id"
 	TransactionID CtxKey = "x-transaction-id"
 )
+
+var parser = uaparser.NewFromSaved()
+var geoReader *geoip2.Reader
+
+func InitGeoIP(dbPath string) error {
+	reader, err := geoip2.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open GeoIP database: %w", err)
+	}
+	geoReader = reader
+	return nil
+}
+
+func CloseGeoIP() error {
+	if geoReader != nil {
+		return geoReader.Close()
+	}
+	return nil
+}
 
 type Ctx struct {
 	Res          http.ResponseWriter
@@ -231,7 +253,6 @@ func newMuxContext(w http.ResponseWriter, customReq *Request, cfg *config.Config
 		Log:          csLog,
 		validate:     validator.New(),
 	}
-	// myCtx.genTransactionID()
 
 	return myCtx
 }
@@ -347,7 +368,7 @@ func (c *Ctx) BindQuery(v any) error {
 	values := c.Req.URL.Query()
 	ptrVal := reflect.ValueOf(v)
 
-	if ptrVal.Kind() != reflect.Ptr || ptrVal.IsNil() {
+	if ptrVal.Kind() != reflect.Pointer || ptrVal.IsNil() {
 		return fmt.Errorf("BindQuery requires a non-nil pointer")
 	}
 
@@ -388,15 +409,93 @@ func (c *Ctx) BindQuery(v any) error {
 }
 
 type ParamInbound struct {
-	Method  string            `json:"method,omitempty"`
-	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Query   map[string]string `json:"query,omitempty"`
-	Body    map[string]any    `json:"body,omitempty"`
-	Params  map[string]string `json:"params,omitempty"`
-	Remote  string            `json:"remote,omitempty"`
+	Method   string            `json:"method,omitempty"`
+	URL      string            `json:"url,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
+	Query    map[string]string `json:"query,omitempty"`
+	Body     map[string]any    `json:"body,omitempty"`
+	Params   map[string]string `json:"params,omitempty"`
+	IP       string            `json:"ip,omitempty"`
+	Location string            `json:"location,omitempty"`
+	Device   string            `json:"device,omitempty"`
 }
 
+func (c *Ctx) GetClientIP() string {
+	ip := c.Req.Header.Get("X-Forwarded-For")
+	if ip != "" {
+		return strings.Split(ip, ",")[0]
+	}
+
+	ip, _, _ = net.SplitHostPort(c.Req.RemoteAddr)
+	return ip
+}
+func (c *Ctx) GetDevice() string {
+	ua := c.Req.UserAgent()
+	if ua == "" {
+		return "Unknown (Unknown)"
+	}
+
+	client := parser.Parse(ua)
+	if client == nil {
+		return "Unknown (Unknown)"
+	}
+
+	os := client.Os.Family
+	browser := client.UserAgent.Family
+
+	// Provide defaults if not detected
+	if os == "" {
+		os = "Unknown"
+	}
+	if browser == "" {
+		browser = "Unknown"
+	}
+
+	return os + " (" + browser + ")"
+}
+
+func (c *Ctx) GetLocation() string {
+	if geoReader == nil {
+		return "Unknown"
+	}
+
+	ip := net.ParseIP(c.GetClientIP())
+	if ip == nil {
+		return "Unknown"
+	}
+
+	// Try to get city information first
+	city, err := geoReader.City(context.Background(), ip)
+	if err != nil {
+		// Fallback to country lookup
+		country, err := geoReader.Country(context.Background(), ip)
+		if err != nil {
+			return "Unknown"
+		}
+		if country.Country.IsoCode != "" {
+			return country.Country.IsoCode
+		}
+		return "Unknown"
+	}
+
+	// Build location string: City, Country
+	parts := []string{}
+	if city.City.Names != nil && city.City.Names["en"] != "" {
+		parts = append(parts, city.City.Names["en"])
+	}
+	if city.Country.Names != nil && city.Country.Names["en"] != "" {
+		parts = append(parts, city.Country.Names["en"])
+	}
+
+	if len(parts) == 0 {
+		if city.Country.IsoCode != "" {
+			return city.Country.IsoCode
+		}
+		return "Unknown"
+	}
+
+	return strings.Join(parts, ", ")
+}
 func (c *Ctx) L(userCase string, masking ...logger.MaskRule) logger.ICustomLogger {
 	c.Log.Init(userCase, c.TraceID(), userCase+"-"+logger.NewSpanID())
 	body := make(map[string]any)
@@ -413,7 +512,9 @@ func (c *Ctx) L(userCase string, masking ...logger.MaskRule) logger.ICustomLogge
 		Query:   queries,
 		Body:    body,
 		Params:  params,
-		Remote:  c.Req.RemoteAddr,
+		IP:      c.GetClientIP(),
+		// Location: c.GetLocation(),
+		Device: c.GetDevice(),
 	}
 
 	c.Log.Info(logAction.INBOUND(fmt.Sprintf("client %s %s server", c.Req.Method, c.Req.URL.String())), paramInbound, masking...)
