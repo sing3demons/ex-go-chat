@@ -13,6 +13,21 @@ type Config struct {
 	Redis    RedisConfig
 	Presence PresenceConfig
 	JWT      JWTConfig
+	Kafka    KafkaConfig
+}
+
+type KafkaConfig struct {
+	Brokers        string
+	RequestTimeout time.Duration
+	RetryBackoff   time.Duration
+	MaxRetries     int
+	GroupID        string
+
+	AutoCreateTopics bool
+
+	BatchSize    int
+	BatchBytes   int
+	BatchTimeout int
 }
 
 // ServerConfig holds server configuration
@@ -52,7 +67,7 @@ type JWTConfig struct {
 
 // Load loads configuration from environment variables with defaults
 func Load() *Config {
-	return &Config{
+	cfg := &Config{
 		Server: ServerConfig{
 			Name:            getEnv("SERVER_NAME", "Real-time Chat System"),
 			Port:            getEnv("SERVER_PORT", "8080"),
@@ -78,7 +93,35 @@ func Load() *Config {
 			Secret:     getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 			Expiration: getDurationEnv("JWT_EXPIRATION", 24*time.Hour),
 		},
+		Kafka: KafkaConfig{
+			Brokers:          getEnv("KAFKA_BROKERS", "localhost:29092"),
+			RequestTimeout:   getDurationEnv("KAFKA_REQUEST_TIMEOUT", 10*time.Second),
+			RetryBackoff:     getDurationEnv("KAFKA_RETRY_BACKOFF", 500*time.Millisecond),
+			MaxRetries:       getIntEnv("KAFKA_MAX_RETRIES", 5),
+			GroupID:          getEnv("KAFKA_GROUP_ID", "chat_system_group"),
+			AutoCreateTopics: getEnv("KAFKA_AUTO_CREATE_TOPICS", "true") == "true",
+			BatchSize:        getIntEnv("KAFKA_BATCH_SIZE", 100),
+			BatchBytes:       getIntEnv("KAFKA_BATCH_BYTES", 1048576), // 1 MB
+			BatchTimeout:     getIntEnv("KAFKA_BATCH_TIMEOUT_MS", 10), // in milliseconds
+		},
 	}
+
+	if os.Getenv("KAFKA_BROKERS") != "" {
+		kc := KafkaConfig{
+			Brokers:          os.Getenv("KAFKA_BROKERS"),
+			RequestTimeout:   getDurationEnv("KAFKA_REQUEST_TIMEOUT", 10*time.Second),
+			RetryBackoff:     getDurationEnv("KAFKA_RETRY_BACKOFF", 500*time.Millisecond),
+			MaxRetries:       getIntEnv("KAFKA_MAX_RETRIES", 5),
+			GroupID:          getEnv("KAFKA_GROUP_ID", "chat_system_group"),
+			AutoCreateTopics: getEnv("KAFKA_AUTO_CREATE_TOPICS", "true") == "true",
+			BatchSize:        getIntEnv("KAFKA_BATCH_SIZE", 100),
+			BatchBytes:       getIntEnv("KAFKA_BATCH_BYTES", 1048576), // 1 MB
+			BatchTimeout:     getIntEnv("KAFKA_BATCH_TIMEOUT_MS", 10), // in milliseconds
+		}
+		cfg.Kafka = kc
+	}
+
+	return cfg
 }
 
 // getEnv gets environment variable or returns default value

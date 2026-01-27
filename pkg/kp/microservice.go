@@ -89,7 +89,17 @@ func NewMicroservice(cfg *config.Config, loggerConfig logger.LoggerConfig) IMicr
 		kafkaClient: nil,
 	}
 
-	ms.ConnectKafka(KafkaConfig{})
+	ms.ConnectKafka(KafkaConfig{
+		Brokers:        cfg.Kafka.Brokers,
+		RequestTimeout: cfg.Kafka.RequestTimeout,
+		RetryBackoff:   cfg.Kafka.RetryBackoff,
+		MaxRetries:     cfg.Kafka.MaxRetries,
+		GroupID:        cfg.Kafka.GroupID,
+		AutoCreateTopics: cfg.Kafka.AutoCreateTopics,
+		BatchSize:      cfg.Kafka.BatchSize,
+		BatchBytes:     cfg.Kafka.BatchBytes,
+		BatchTimeout:   cfg.Kafka.BatchTimeout,
+	})
 
 	return ms
 }
