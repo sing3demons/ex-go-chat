@@ -1,11 +1,9 @@
 package kp
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -89,17 +87,19 @@ func NewMicroservice(cfg *config.Config, loggerConfig logger.LoggerConfig) IMicr
 		kafkaClient: nil,
 	}
 
-	ms.ConnectKafka(KafkaConfig{
-		Brokers:        cfg.Kafka.Brokers,
-		RequestTimeout: cfg.Kafka.RequestTimeout,
-		RetryBackoff:   cfg.Kafka.RetryBackoff,
-		MaxRetries:     cfg.Kafka.MaxRetries,
-		GroupID:        cfg.Kafka.GroupID,
+	// Do NOT connect to Kafka here (lazy connection)
+	// Store config for later use in startKafkaConsumers()
+	ms.kafkaConfig = &KafkaConfig{
+		Brokers:          cfg.Kafka.Brokers,
+		RequestTimeout:   cfg.Kafka.RequestTimeout,
+		RetryBackoff:     cfg.Kafka.RetryBackoff,
+		MaxRetries:       cfg.Kafka.MaxRetries,
+		GroupID:          cfg.Kafka.GroupID,
 		AutoCreateTopics: cfg.Kafka.AutoCreateTopics,
-		BatchSize:      cfg.Kafka.BatchSize,
-		BatchBytes:     cfg.Kafka.BatchBytes,
-		BatchTimeout:   cfg.Kafka.BatchTimeout,
-	})
+		BatchSize:        cfg.Kafka.BatchSize,
+		BatchBytes:       cfg.Kafka.BatchBytes,
+		BatchTimeout:     cfg.Kafka.BatchTimeout,
+	}
 
 	return ms
 }
@@ -297,8 +297,17 @@ func (m *Microservice) isKafkaConfigured() bool {
 // startKafkaConsumers spins up all registered consumers with the given context
 func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 
-	if m.kafkaClient == nil {
+	if m.kafkaConfig == nil || strings.TrimSpace(m.kafkaConfig.Brokers) == "" {
+		log.Printf("Kafka not configured; skipping consumer startup")
 		return
+	}
+
+	// Lazy connect on first consumer startup
+	if m.kafkaClient == nil {
+		if err := m.ConnectKafka(*m.kafkaConfig); err != nil {
+			log.Printf("Failed to connect to Kafka: %v", err)
+			return
+		}
 	}
 
 	for topic, handler := range m.kafkaHandlers {
@@ -383,6 +392,13 @@ func (m *Microservice) createKafkaWriter(conf *KafkaConfig) (*kafkaClient, error
 			dialer: dialer,
 			mu:     sync.RWMutex{},
 		},
+		reader: make(map[string]*kafka.Reader),
+		mu:     &sync.RWMutex{},
+	}
+
+	batchTimeout := time.Duration(conf.BatchTimeout) * time.Millisecond
+	if batchTimeout <= 0 {
+		batchTimeout = 500 * time.Millisecond
 	}
 
 	w := kafka.NewWriter(kafka.WriterConfig{
@@ -390,7 +406,7 @@ func (m *Microservice) createKafkaWriter(conf *KafkaConfig) (*kafkaClient, error
 		Dialer:       dialer,
 		BatchSize:    conf.BatchSize,
 		BatchBytes:   conf.BatchBytes,
-		BatchTimeout: time.Duration(conf.BatchTimeout),
+		BatchTimeout: batchTimeout,
 	})
 	kc.writer = w
 	return kc, nil
@@ -409,158 +425,29 @@ type KafkaParams struct {
 }
 
 func (m *Microservice) Consume(topic string, handler KafkaConsumerHandler) {
+	if topic == "" || handler == nil {
+		panic("topic and handler must be provided for Kafka consumer")
+	}
+
 	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if !m.isKafkaConfigured() {
-		m.mu.Unlock()
+	if !m.isKafkaConfigured() || !m.isKafkaConnected() {
+		log.Printf("Kafka not configured or connected; skipping consumer for topic %s", topic)
 		return
-	}
-
-	// start the consumer immediately if microservice is running
-	if !m.isKafkaConnected() {
-		m.mu.Unlock()
-		return
-	}
-
-	// auto create topics if enabled
-	if m.kafkaConfig.AutoCreateTopics {
-		m.kafkaClient.CreateTopic(topic, 1)
 	}
 
 	if _, exists := m.kafkaHandlers[topic]; exists {
-		m.mu.Unlock()
 		return
 	}
 
-	if m.kafkaClient.reader == nil {
-		m.kafkaClient.reader = make(map[string]*kafka.Reader)
+	if m.kafkaConfig.AutoCreateTopics {
+		_ = m.kafkaClient.CreateTopic(topic, 1)
 	}
 
-	if m.kafkaClient.reader[topic] == nil {
-		// Create Kafka consumer
-		kc, err := NewKafkaConsumer(m.kafkaClient.dialer, m.kafkaConfig, ConsumerConfig{
-			Topic:   topic,
-			Handler: handler,
-		})
-		if err != nil {
-			m.mu.Unlock()
-			panic(fmt.Sprintf("failed to create kafka consumer for topic %s: %v", topic, err))
-		}
+	m.kafkaHandlers[topic] = handler
 
-		m.kafkaHandlers[topic] = handler
-		m.kafkaClient.reader[topic] = kc.reader
-	}
-
-	reader := m.kafkaClient.reader[topic]
-	m.mu.Unlock()
-
-	// Start consumer loop in goroutine
-	go func() {
-
-		for {
-			msg, err := reader.FetchMessage(context.Background())
-			if err != nil {
-				if err != context.Canceled {
-					// customLog.Error(logAction.APP_LOGIC("Kafka"), "Kafka consumer read error: "+err.Error())
-					log.Printf("Kafka consumer read error: %v", err)
-				}
-				continue
-			}
-			customLog := logger.NewCustomLogger(m.config.Server.Name, m.loggerConfig)
-			// Create request with msg.Value as body (for ctx.Bind())
-			url := &url.URL{Path: "/topic/" + topic}
-			url.Host = m.kafkaConfig.Brokers
-			url.Scheme = "kafka"
-
-			// /{topic} params("topic")	
-				
-
-			req := &http.Request{
-				Method: "KAFKA",
-				URL:    url,
-				Header: http.Header{
-					"Content-Type": []string{"application/json"},
-				},
-				Body: io.NopCloser(bytes.NewReader(msg.Value)),
-			}
-			req = req.WithContext(context.Background())
-
-			// params
-			// params := &KafkaParams{
-			// 	Topic:     topic,
-			// 	Key:       string(msg.Key),
-			// 	Value:     string(msg.Value),
-			// 	Partition: msg.Partition,
-			// 	Offset:    msg.Offset,
-			// 	Message:   msg,
-			// }
-			// msg.Headers
-			// msg.HighWaterMark
-			// msg.Key
-			// msg.Value
-			// msg.Partition
-			// msg.Offset
-			// msg.Time
-			// msg.Topic
-			// msg.WriterData
-
-			params := &KafkaParams{
-				Headers:       make(map[string]string),
-				HighWaterMark: msg.HighWaterMark,
-				Key:           string(msg.Key),
-				Value:         string(msg.Value),
-				Partition:     msg.Partition,
-				Offset:        msg.Offset,
-				Time:          msg.Time,
-				Topic:         msg.Topic,
-				WriterData:    msg.WriterData,
-			}
-			for _, h := range msg.Headers {
-				params.Headers[h.Key] = string(h.Value)
-			}
-
-			// Add Kafka message details to request context
-
-			// Store Kafka message data in request context
-			req = req.WithContext(context.WithValue(req.Context(), CtxKey("kafka.body"), params))
-			req = req.WithContext(context.WithValue(req.Context(), CtxKey("kafka.message"), &msg))
-			req = req.WithContext(context.WithValue(req.Context(), CtxKey("kafka.topic"), params.Topic))
-			req = req.WithContext(context.WithValue(req.Context(), CtxKey("kafka.key"), params.Key))
-			req = req.WithContext(context.WithValue(req.Context(), CtxKey("kafka.value"), params.Value))
-			req = req.WithContext(context.WithValue(req.Context(), CtxKey("kafka.partition"), params.Partition))
-			req = req.WithContext(context.WithValue(req.Context(), CtxKey("kafka.offset"), params.Offset))
-			// Extract trace/span from headers if available
-			for _, h := range msg.Headers {
-				if h.Key == "x-trace-id" {
-					req = req.WithContext(context.WithValue(req.Context(), SessionID, string(h.Value)))
-				}
-				if h.Key == "x-span-id" {
-					req = req.WithContext(context.WithValue(req.Context(), TransactionID, string(h.Value)))
-				}
-			}
-
-			// Use newMuxContext to create proper Ctx (includes validator)
-			msgCtx := newMuxContext(nil, newRequest(req, m.kafkaClient.writer), m.config, customLog).(*Ctx)
-
-			// Call handler with panic recovery
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						customLog.Error(logAction.SYSTEM("error"), fmt.Sprintf("Kafka consumer handler panic: %v", r))
-					}
-				}()
-
-				handler(msgCtx)
-			}()
-
-			// Commit message after successful handling
-			if err := reader.CommitMessages(context.Background(), msg); err != nil {
-				customLog.Error(logAction.APP_LOGIC("Kafka"), fmt.Sprintf("Failed to commit message: %v", err))
-			}
-		}
-	}()
-
-	log.Printf("Kafka consumer registered for topic: %s with group: %s", topic, m.kafkaConfig.GroupID)
+	log.Printf("Kafka consumer registered for topic: %s (lazy start)", topic)
 }
 
 // Consume registers a Kafka consumer for the given topic

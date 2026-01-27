@@ -189,6 +189,15 @@ func main() {
 	// Register notification routes
 	notificationHandler.RegisterRoutes(app)
 
+	// app.Consume("test", func(ctx *kp.Ctx) {
+
+	// 	var msg map[string]any
+	// 	if err := ctx.Bind(&msg); err != nil {
+	// 		return
+	// 	}
+	// 	fmt.Printf("Received Kafka message on 'test' topic: %+v\n", msg)
+	// })
+
 	// Register WebSocket route
 	app.GET("/ws", wsHandler.ServeWS)
 	log.Info("Routes registered")

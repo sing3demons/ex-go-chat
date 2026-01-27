@@ -6,6 +6,7 @@ import (
 	"log"
 	"realtime-chat-system/pkg/logAction"
 	"strings"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -34,12 +35,13 @@ func NewKafkaConsumer(dialer *kafka.Dialer, cfg *KafkaConfig, config ConsumerCon
 	}
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Dialer:         dialer,
-		Brokers:        brokerAddrs,
-		Topic:          config.Topic,
-		GroupID:        cfg.GroupID,
-		StartOffset:    kafka.LastOffset,
-		CommitInterval: 1000, // commits every 1000 messages
+		Dialer:      dialer,
+		Brokers:     brokerAddrs,
+		Topic:       config.Topic,
+		GroupID:     cfg.GroupID,
+		StartOffset: kafka.LastOffset,
+		// Commit offsets every second; adjust as needed.
+		CommitInterval: time.Second,
 	})
 
 	return &KafkaConsumer{
