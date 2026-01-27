@@ -2,7 +2,6 @@ package kp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"realtime-chat-system/pkg/logAction"
@@ -100,75 +99,4 @@ func (kc *KafkaConsumer) Run(ctx context.Context, appCtx *Ctx) {
 			}
 		}
 	}()
-}
-
-// GetMessage retrieves the Kafka message from context
-func (c *Ctx) GetMessage() *kafka.Message {
-	if msg, ok := c.Value("kafka.message").(*kafka.Message); ok {
-		return msg
-	}
-	return nil
-}
-
-// GetMessageValue retrieves the message value as string
-func (c *Ctx) GetMessageValue() string {
-	if val, ok := c.Value("kafka.value").(string); ok {
-		return val
-	}
-	return ""
-}
-
-// GetMessageKey retrieves the message key as string
-func (c *Ctx) GetMessageKey() string {
-	if key, ok := c.Value("kafka.key").(string); ok {
-		return key
-	}
-	return ""
-}
-
-// GetTopic retrieves the topic name
-func (c *Ctx) GetTopic() string {
-	if topic, ok := c.Value("kafka.topic").(string); ok {
-		return topic
-	}
-	return ""
-}
-
-// GetPartition retrieves the partition number
-func (c *Ctx) GetPartition() int {
-	if partition, ok := c.Value("kafka.partition").(int); ok {
-		return partition
-	}
-	return -1
-}
-
-// GetOffset retrieves the message offset
-func (c *Ctx) GetOffset() int64 {
-	if offset, ok := c.Value("kafka.offset").(int64); ok {
-		return offset
-	}
-	return -1
-}
-
-// BindMessageValue binds the message value to a struct
-func (c *Ctx) BindMessageValue(v any) error {
-	msgValue := c.GetMessageValue()
-	if msgValue == "" {
-		// return NewError(400, "empty_message", "message value is empty")
-		return &Error{
-			StatusCode: 400,
-			Message:    "empty_message",
-			Err:        errors.New("message value is empty"),
-		}
-	}
-
-	if err := json.Unmarshal([]byte(msgValue), v); err != nil {
-		return &Error{
-			StatusCode: 400,
-			Message:    "invalid_json",
-			Err:        errors.New(err.Error()),
-		}
-	}
-
-	return nil
 }
