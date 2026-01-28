@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -188,13 +187,10 @@ func main() {
 	// Register notification routes
 	notificationHandler.RegisterRoutes(app)
 
-	app.Consume("test", func(ctx *kp.Ctx) {
+	app.Consume("test", func(ctx *kp.KafkaCtx) {
+		ctx.L(ctx.Topic)
 
-		var msg map[string]any
-		if err := ctx.Bind(&msg); err != nil {
-			return
-		}
-		fmt.Printf("Received Kafka message on 'test' topic: %+v\n", msg)
+		ctx.Log.Flush(200, "")
 	})
 
 	// Register WebSocket route

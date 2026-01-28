@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"realtime-chat-system/config"
-	"realtime-chat-system/pkg/logAction"
 	"realtime-chat-system/pkg/logger"
 
 	"github.com/segmentio/kafka-go"
@@ -490,81 +488,4 @@ func (m *Microservice) Consume(topic string, handler KafkaConsumerHandler) {
 	}
 
 	log.Printf("Kafka consumer registered for topic: %s (lazy start)", topic)
-}
-
-// Consume registers a Kafka consumer for the given topic
-func (m *Microservice) Consume_v1(topic string, handler KafkaConsumerHandler) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.isKafkaConfigured() {
-		return
-	}
-
-	// start the consumer immediately if microservice is running
-	if !m.isKafkaConnected() {
-		return
-	}
-	// auto create topics if enabled
-	if m.kafkaConfig.AutoCreateTopics {
-		m.kafkaClient.CreateTopic(topic, 1)
-	}
-
-	if _, exists := m.kafkaHandlers[topic]; exists {
-		return
-	}
-
-	m.mu.Lock()
-	if m.kafkaClient.reader == nil {
-		m.kafkaClient.reader = make(map[string]*kafka.Reader)
-	}
-	if m.kafkaClient.reader[topic] == nil {
-		// Create Kafka consumer
-		kc, err := NewKafkaConsumer(m.kafkaClient.dialer, m.kafkaConfig, ConsumerConfig{
-			Topic:   topic,
-			Handler: handler,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("failed to create kafka consumer for topic %s: %v", topic, err))
-		}
-
-		m.kafkaHandlers[topic] = handler
-		m.kafkaClient.reader[topic] = kc.reader
-	}
-	reader := m.kafkaClient.reader[topic]
-	m.mu.Unlock()
-
-	msg, err := reader.FetchMessage(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	customLog := logger.NewCustomLogger(m.config.Server.Name, m.loggerConfig)
-
-	requester := &http.Request{
-		Method: "",
-		URL:    &url.URL{},
-	}
-
-	msgCtx := newMuxContext(nil, newRequest(requester, m.kafkaClient.writer), m.config, customLog)
-	err = func(ctx *Ctx) error {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("kafka consumer handler panic: %v", r)
-				customLog.Error(logAction.SYSTEM("error"), "Kafka consumer handler panic")
-			}
-
-		}()
-
-		// handler(ctx)
-		m.kafkaHandlers[topic](ctx)
-		return nil
-	}(msgCtx.(*Ctx))
-	if err != nil {
-		log.Printf("kafka consumer handler error: %v", err)
-		return
-	}
-
-	log.Printf("Kafka consumer registered for topic: %s with group: %s", topic, m.kafkaConfig.GroupID)
-
-	reader.CommitMessages(context.Background(), msg)
 }

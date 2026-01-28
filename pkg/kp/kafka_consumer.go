@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"net/http"
 	"realtime-chat-system/pkg/logAction"
 	"strings"
 	"time"
@@ -13,7 +12,7 @@ import (
 )
 
 // KafkaConsumerHandler is a handler for Kafka messages
-type KafkaConsumerHandler func(ctx *Ctx)
+type KafkaConsumerHandler func(ctx *KafkaCtx)
 
 // ConsumerConfig holds Kafka consumer configuration
 type ConsumerConfig struct {
@@ -83,29 +82,8 @@ func (kc *KafkaConsumer) Run(ctx context.Context, appCtx *Ctx) {
 					continue
 				}
 
-				// Create a fake HTTP request with Kafka message as body
-				req, _ := http.NewRequestWithContext(
-					ctx,
-					"POST",
-					"http://kafka/"+kc.config.Topic,
-					strings.NewReader(string(msg.Value)),
-				)
-				req.Header.Set("Content-Type", "application/json")
-
-				// Create a new context with message data
-				msgCtx := &Ctx{
-					Cfg: appCtx.Cfg,
-					Log: appCtx.Log,
-					Req: req,
-				}
-
-				// Store Kafka message in context
-				msgCtx.Set("kafka.message", &msg)
-				msgCtx.Set("kafka.topic", kc.config.Topic)
-				msgCtx.Set("kafka.key", string(msg.Key))
-				msgCtx.Set("kafka.value", string(msg.Value))
-				msgCtx.Set("kafka.partition", msg.Partition)
-				msgCtx.Set("kafka.offset", msg.Offset)
+				// Create a Kafka context (not HTTP request)
+				msgCtx := NewKafkaCtx(appCtx.Cfg, appCtx.Log, &msg, kc.config.Topic)
 
 				// Call handler
 				kc.config.Handler(msgCtx)
