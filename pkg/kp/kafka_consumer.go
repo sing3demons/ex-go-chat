@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/http"
 	"realtime-chat-system/pkg/logAction"
 	"strings"
 	"time"
@@ -82,10 +83,20 @@ func (kc *KafkaConsumer) Run(ctx context.Context, appCtx *Ctx) {
 					continue
 				}
 
+				// Create a fake HTTP request with Kafka message as body
+				req, _ := http.NewRequestWithContext(
+					ctx,
+					"POST",
+					"http://kafka/"+kc.config.Topic,
+					strings.NewReader(string(msg.Value)),
+				)
+				req.Header.Set("Content-Type", "application/json")
+
 				// Create a new context with message data
 				msgCtx := &Ctx{
 					Cfg: appCtx.Cfg,
 					Log: appCtx.Log,
+					Req: req,
 				}
 
 				// Store Kafka message in context
