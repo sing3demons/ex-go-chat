@@ -47,7 +47,7 @@ type Microservice struct {
 	// kafkaConsumers []*KafkaConsumer                // running consumers
 	// kafkaWriters   Writer                          // topic -> writer
 	mu          sync.RWMutex
-	kafkaClient *kafkaClient
+	kafkaClient IKafkaClient
 	kafkaWg     sync.WaitGroup // WaitGroup for Kafka consumers
 }
 type IMicroservice interface {
@@ -251,7 +251,7 @@ func (m *Microservice) preHandle(handler MyHandler, middlewares ...Middleware) h
 		requestLogger := logger.NewCustomLogger(m.config.Server.Name, m.loggerConfig)
 		var writer Writer
 		if m.kafkaClient != nil {
-			writer = m.kafkaClient.writer
+			writer = m.kafkaClient.GetWriter()
 		}
 		handler(newMuxContext(w, newRequest(r, writer), m.config, requestLogger).(*Ctx))
 	}
@@ -323,7 +323,7 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 
 			// Once connected, start the consumers
 			for topic, handler := range m.kafkaHandlers {
-				kc, err := NewKafkaConsumer(m.kafkaClient.dialer, m.kafkaConfig, ConsumerConfig{
+				kc, err := NewKafkaConsumer(m.kafkaClient.GetDialer(), m.kafkaConfig, ConsumerConfig{
 					Topic:   topic,
 					Handler: handler,
 				})

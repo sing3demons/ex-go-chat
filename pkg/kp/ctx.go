@@ -74,6 +74,7 @@ type Ctx struct {
 	Cfg          *config.Config
 	Log          logger.ICustomLogger
 	validate     *validator.Validate
+	asyncLogs    bool
 }
 
 type ICtx interface {
@@ -574,7 +575,9 @@ func (c *Ctx) JSON(code int, v any, masking ...logger.MaskRule) {
 		"body":    v,
 	}, masking...)
 
-	c.Log.Flush(code, c.statusMessage(code))
+	if !c.asyncLogs {
+		c.Log.Flush(code, c.statusMessage(code))
+	}
 }
 func (c *Ctx) Redirect(urlStr string) {
 	http.Redirect(c.Res, c.Req, urlStr, http.StatusFound)
@@ -584,8 +587,10 @@ func (c *Ctx) Redirect(urlStr string) {
 		"url":     urlStr,
 	})
 
-	msg := fmt.Sprintf("redirect to %s", urlStr)
-	c.Log.Flush(http.StatusFound, msg)
+	if !c.asyncLogs {
+		msg := fmt.Sprintf("redirect to %s", urlStr)
+		c.Log.Flush(http.StatusFound, msg)
+	}
 }
 
 func (c *Ctx) RedirectWithError(rawURL string, code int, v any, err error) {
@@ -603,7 +608,9 @@ func (c *Ctx) RedirectWithError(rawURL string, code int, v any, err error) {
 			"headers": c.Res.Header(),
 			"error":   err.Error(),
 		})
-		c.Log.FlushError(http.StatusInternalServerError, pErr.Error())
+		if !c.asyncLogs {
+			c.Log.FlushError(http.StatusInternalServerError, pErr.Error())
+		}
 		return
 	}
 	query := location.Query()
@@ -623,8 +630,9 @@ func (c *Ctx) RedirectWithError(rawURL string, code int, v any, err error) {
 		"headers": c.Res.Header(),
 		"body":    v,
 	})
-	c.Log.FlushError(http.StatusInternalServerError, "redirect to "+location.String())
-
+	if !c.asyncLogs {
+		c.Log.FlushError(http.StatusInternalServerError, "redirect to "+location.String())
+	}
 }
 
 func (c *Ctx) Render(path string, data map[string]any) {
@@ -644,12 +652,15 @@ func (c *Ctx) Render(path string, data map[string]any) {
 			redirectURI, ok := v.(string)
 			if ok && redirectURI != "" {
 				http.Redirect(c.Res, c.Req, redirectURI, http.StatusFound)
+
 				c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
 					"status":  http.StatusInternalServerError,
 					"headers": c.Res.Header(),
 					"error":   "template file not found",
 				})
-				c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				if !c.asyncLogs {
+					c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				}
 				return
 			}
 		}
@@ -660,12 +671,15 @@ func (c *Ctx) Render(path string, data map[string]any) {
 		json.NewEncoder(c.Res).Encode(map[string]any{
 			"error": "template file not found",
 		})
+
 		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
 			"status":  http.StatusInternalServerError,
 			"headers": c.Res.Header(),
 			"error":   "template file not found",
 		})
-		c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+		if !c.asyncLogs {
+			c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+		}
 		return
 	}
 
@@ -681,7 +695,9 @@ func (c *Ctx) Render(path string, data map[string]any) {
 					"headers": c.Res.Header(),
 					"error":   "template file not found",
 				})
-				c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				if !c.asyncLogs {
+					c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				}
 				return
 			}
 		}
@@ -694,7 +710,9 @@ func (c *Ctx) Render(path string, data map[string]any) {
 			"status": http.StatusInternalServerError,
 			"error":  err.Error(),
 		})
-		c.Log.FlushError(http.StatusInternalServerError, "template parse error")
+		if !c.asyncLogs {
+			c.Log.FlushError(http.StatusInternalServerError, "template parse error")
+		}
 		return
 	}
 
@@ -710,7 +728,9 @@ func (c *Ctx) Render(path string, data map[string]any) {
 					"headers": c.Res.Header(),
 					"error":   "template file not found",
 				})
-				c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				if !c.asyncLogs {
+					c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				}
 				return
 			}
 		}
@@ -724,7 +744,9 @@ func (c *Ctx) Render(path string, data map[string]any) {
 			"status": http.StatusInternalServerError,
 			"error":  err.Error(),
 		})
-		c.Log.FlushError(http.StatusInternalServerError, "template execution error")
+		if !c.asyncLogs {
+			c.Log.FlushError(http.StatusInternalServerError, "template execution error")
+		}
 		return
 	}
 	c.Log.Info(logAction.OUTBOUND("server render to client"), map[string]any{
@@ -732,7 +754,9 @@ func (c *Ctx) Render(path string, data map[string]any) {
 		"headers": c.Res.Header(),
 		"body":    data,
 	})
-	c.Log.Flush(http.StatusOK, "success")
+	if !c.asyncLogs {
+		c.Log.Flush(http.StatusOK, "success")
+	}
 }
 
 func (c *Ctx) JSONError(customError *Error) {
@@ -754,13 +778,17 @@ func (c *Ctx) JSONError(customError *Error) {
 	// err may be nil in some call sites; avoid panic on err.Error()
 	if err != nil {
 		c.Log.AddMetadata("ErrorCause", err.Error())
-		c.Log.FlushError(code, c.statusMessage(code))
+		if !c.asyncLogs {
+			c.Log.FlushError(code, c.statusMessage(code))
+		}
 		return
 	}
 
 	// Fallback when no error object provided
 	c.Log.AddMetadata("ErrorCause", "unknown")
-	c.Log.FlushError(code, c.statusMessage(code))
+	if !c.asyncLogs {
+		c.Log.FlushError(code, c.statusMessage(code))
+	}
 }
 func (c *Ctx) statusMessage(code int) string {
 	msg := http.StatusText(code)
