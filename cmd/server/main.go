@@ -161,17 +161,15 @@ func main() {
 		},
 	}
 	app := kp.NewMicroservice(cfg, loggerConfig)
+	app.Use(middleware.Recovery)
 	app.Use(middleware.CORS)
 
 	// Setup HTTP routes
 	// mux := http.NewServeMux()
 
 	// Health check endpoint
-	// mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-	// 	w.WriteHeader(http.StatusOK)
-	// 	w.Write([]byte("OK"))
-	// })
 	app.GET("/health", func(ctx *kp.Ctx) {
+		ctx.L("health")
 		ctx.JSON(http.StatusOK, "OK")
 	})
 

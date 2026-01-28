@@ -564,7 +564,9 @@ func (c *Ctx) JSON(code int, v any, masking ...logger.MaskRule) {
 	c.Res.Header().Set("x-session-id", c.Log.TraceID())
 	c.Res.WriteHeader(code)
 	json.NewEncoder(c.Res).Encode(v)
-
+	if !c.Log.IsEnd() {
+		return
+	}
 	c.Log.Info(logAction.OUTBOUND("server response to client"), map[string]any{
 		"status":  code,
 		"headers": c.Res.Header(),
@@ -724,7 +726,6 @@ func (c *Ctx) Render(path string, data map[string]any) {
 		c.Log.FlushError(http.StatusInternalServerError, "template execution error")
 		return
 	}
-
 	c.Log.Info(logAction.OUTBOUND("server render to client"), map[string]any{
 		"status":  http.StatusOK,
 		"headers": c.Res.Header(),
