@@ -7,6 +7,7 @@ import (
 	"realtime-chat-system/pkg/logAction"
 	"realtime-chat-system/pkg/logger"
 
+	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -98,7 +99,20 @@ func (kc *KafkaCtx) L(useCase string, masking ...logger.MaskRule) logger.ICustom
 	if useCase == "" {
 		useCase = "kafka-consumer-" + kc.Topic
 	}
-	kc.Log.Init(useCase, kc.TraceID(), logger.NewSpanID())
+	// get x-session-id from headers
+	var sessionID string
+	for _, header := range kc.Message.Headers {
+		if header.Key == "x-session-id" {
+			sessionID = string(header.Value)
+			break
+		}
+	}
+
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
+	// sessionID := x-session-id
+	kc.Log.Init(useCase, sessionID, logger.NewSpanID())
 
 	body := make(map[string]any)
 	if err := kc.Bind(&body); err != nil {
@@ -111,6 +125,7 @@ func (kc *KafkaCtx) L(useCase string, masking ...logger.MaskRule) logger.ICustom
 		"value":     body,
 		"partition": kc.Partition,
 		"offset":    kc.Offset,
+		"headers":   kc.Message.Headers,
 	}
 
 	kc.Log.Info(logAction.CONSUMING("consume "+kc.Topic), paramInbound, masking...)

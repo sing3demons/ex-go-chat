@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"realtime-chat-system/pkg/logAction"
+	"realtime-chat-system/pkg/logger"
 	"strings"
 	"time"
 
@@ -76,14 +77,17 @@ func (kc *KafkaConsumer) Run(ctx context.Context, appCtx *Ctx) {
 			default:
 				msg, err := kc.reader.ReadMessage(ctx)
 				if err != nil {
-					if err != context.Canceled && err != context.DeadlineExceeded {
-						appCtx.Log.Error(logAction.APP_LOGIC("Kafka"), "Kafka consumer read error: "+err.Error())
+					// Use errors.Is to handle wrapped context errors
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						return // Exit gracefully on context cancellation
 					}
+					appCtx.Log.Error(logAction.APP_LOGIC("Kafka"), "Kafka consumer read error: "+err.Error())
 					continue
 				}
 
 				// Create a Kafka context (not HTTP request)
-				msgCtx := NewKafkaCtx(appCtx.Cfg, appCtx.Log, &msg, kc.config.Topic)
+				// Create new logger instance for each message to avoid race conditions
+				msgCtx := NewKafkaCtx(appCtx.Cfg, logger.NewCustomLogger(appCtx.Cfg.Server.Name, logger.LoggerConfig{}), &msg, kc.config.Topic)
 
 				// Call handler
 				kc.config.Handler(msgCtx)

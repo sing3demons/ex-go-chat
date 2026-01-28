@@ -341,29 +341,7 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 				log.Printf("Kafka consumer started for topic: %s", topic)
 			}
 		}()
-		return
 	}
-
-	// If already connected, start consumers directly
-	for topic, handler := range m.kafkaHandlers {
-		kc, err := NewKafkaConsumer(m.kafkaClient.dialer, m.kafkaConfig, ConsumerConfig{
-			Topic:   topic,
-			Handler: handler,
-		})
-		if err != nil {
-			log.Printf("failed to start kafka consumer for topic %s: %v", topic, err)
-			continue
-		}
-
-		m.kafkaWg.Add(1)
-		go func(consumer *KafkaConsumer, t string) {
-			defer m.kafkaWg.Done()
-			consumer.Run(ctx, m.createKafkaContext())
-			log.Printf("Kafka consumer stopped for topic: %s", t)
-		}(kc, topic)
-		log.Printf("Kafka consumer started for topic: %s", topic)
-	}
-
 }
 
 // createKafkaContext builds a base context/logger for Kafka handlers

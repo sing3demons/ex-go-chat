@@ -55,6 +55,9 @@ func productKafka(n int) {
 			err = writer.WriteMessages(context.Background(), kafka.Message{
 				Key:   []byte(fmt.Sprintf("key-%d", index+1)),
 				Value: value,
+				Headers: []kafka.Header{
+					{Key: "x-session-id", Value: []byte(fmt.Sprintf("%d-session-%d", index+1, time.Now().UnixNano()))},
+				},
 			})
 
 			if err != nil {
@@ -79,5 +82,5 @@ func productKafka(n int) {
 
 func main() {
 	// Produce 10000 messages
-	productKafka(10000)
+	productKafka(1)
 }
