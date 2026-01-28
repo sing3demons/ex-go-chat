@@ -50,6 +50,7 @@ type Microservice struct {
 	// kafkaWriters   Writer                          // topic -> writer
 	mu          sync.RWMutex
 	kafkaClient *kafkaClient
+	kafkaWg     sync.WaitGroup // WaitGroup for Kafka consumers
 }
 type IMicroservice interface {
 	Start()
@@ -180,7 +181,7 @@ func (m *Microservice) Start() {
 		handler = mw(handler)
 	}
 
-	srv := http.Server{
+	srv := &http.Server{
 		Addr:         ":" + m.config.Server.Port,
 		Handler:      handler,
 		ReadTimeout:  60 * time.Second,
@@ -188,50 +189,57 @@ func (m *Microservice) Start() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Context for Kafka consumers
+	kafkaCtx, kafkaCancel := context.WithCancel(context.Background())
+	defer kafkaCancel()
 
-	// start Kafka consumers in background (non-blocking)
-	go m.startKafkaConsumers(ctx)
+	// Start Kafka consumers in background (non-blocking)
+	go m.startKafkaConsumers(kafkaCtx)
 
-	var wg sync.WaitGroup
+	// Channel to listen for errors from HTTP server
+	serverErrors := make(chan error, 1)
 
-	// Start HTTP Server
-	wg.Add(1)
+	// Start HTTP Server in background
 	go func() {
-		defer wg.Done()
 		log.Printf("starting server on %s", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("server listen err: %v", err)
-		}
+		serverErrors <- srv.ListenAndServe()
 	}()
 
-	// Graceful Shutdown
+	// Channel for OS signals
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	log.Println("shutting down server...")
+	// Block until we receive signal or error
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("server error: %v", err)
+		}
+	case <-quit:
+		log.Println("shutting down server...")
 
-	// stop Kafka consumers
-	cancel()
-	// m.closeKafkaConsumers()
-	// m.closeKafkaProducers()
-	if m.kafkaClient != nil {
-		m.kafkaClient.Close()
+		// Stop Kafka consumers first
+		kafkaCancel()
+
+		// Wait for all Kafka consumers to finish
+		log.Println("waiting for kafka consumers to shutdown...")
+		m.kafkaWg.Wait()
+		log.Println("all kafka consumers stopped")
+
+		if m.kafkaClient != nil {
+			m.kafkaClient.Close()
+		}
+
+		// Shutdown HTTP server gracefully
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server forced to shutdown: %v", err)
+		}
+
+		log.Println("server exited")
 	}
-
-	// Shutdown HTTP server
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("server forced to shutdown: %v", err)
-		os.Exit(1)
-	}
-
-	wg.Wait()
-	log.Println("server exited")
 }
 
 func (m *Microservice) Use(middleware Middleware) {
@@ -326,7 +334,12 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 					continue
 				}
 
-				go kc.Run(ctx, m.createKafkaContext())
+				m.kafkaWg.Add(1)
+				go func(consumer *KafkaConsumer, t string) {
+					defer m.kafkaWg.Done()
+					consumer.Run(ctx, m.createKafkaContext())
+					log.Printf("Kafka consumer stopped for topic: %s", t)
+				}(kc, topic)
 				log.Printf("Kafka consumer started for topic: %s", topic)
 			}
 		}()
@@ -344,7 +357,12 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 			continue
 		}
 
-		go kc.Run(ctx, m.createKafkaContext())
+		m.kafkaWg.Add(1)
+		go func(consumer *KafkaConsumer, t string) {
+			defer m.kafkaWg.Done()
+			consumer.Run(ctx, m.createKafkaContext())
+			log.Printf("Kafka consumer stopped for topic: %s", t)
+		}(kc, topic)
 		log.Printf("Kafka consumer started for topic: %s", topic)
 	}
 
