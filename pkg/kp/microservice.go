@@ -191,8 +191,8 @@ func (m *Microservice) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// start Kafka consumers first (non-blocking)
-	m.startKafkaConsumers(ctx)
+	// start Kafka consumers in background (non-blocking)
+	go m.startKafkaConsumers(ctx)
 
 	var wg sync.WaitGroup
 
@@ -243,7 +243,11 @@ func (m *Microservice) preHandle(handler MyHandler, middlewares ...Middleware) h
 	final := func(w http.ResponseWriter, r *http.Request) {
 		// Create a new per-request logger using the configured LoggerConfig
 		requestLogger := logger.NewCustomLogger(m.config.Server.Name, m.loggerConfig)
-		handler(newMuxContext(w, newRequest(r, m.kafkaClient.writer), m.config, requestLogger).(*Ctx))
+		var writer Writer
+		if m.kafkaClient != nil {
+			writer = m.kafkaClient.writer
+		}
+		handler(newMuxContext(w, newRequest(r, writer), m.config, requestLogger).(*Ctx))
 	}
 	// Apply middlewares in reverse order (so the first is outermost)
 	for i := len(middlewares) - 1; i >= 0; i-- {
@@ -296,7 +300,7 @@ func (m *Microservice) isKafkaConfigured() bool {
 
 // startKafkaConsumers spins up all registered consumers with the given context
 func (m *Microservice) startKafkaConsumers(ctx context.Context) {
-
+	log.Printf("Starting Kafka consumers...")
 	if m.kafkaConfig == nil || strings.TrimSpace(m.kafkaConfig.Brokers) == "" {
 		log.Printf("Kafka not configured; skipping consumer startup")
 		return
@@ -304,12 +308,32 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 
 	// Lazy connect on first consumer startup
 	if m.kafkaClient == nil {
-		if err := m.ConnectKafka(*m.kafkaConfig); err != nil {
-			log.Printf("Failed to connect to Kafka: %v", err)
-			return
-		}
+		// Connect to Kafka without blocking - only retry once on failure
+		go func() {
+			if err := m.ConnectKafka(*m.kafkaConfig); err != nil {
+				log.Printf("Failed to connect to Kafka: %v", err)
+				return
+			}
+
+			// Once connected, start the consumers
+			for topic, handler := range m.kafkaHandlers {
+				kc, err := NewKafkaConsumer(m.kafkaClient.dialer, m.kafkaConfig, ConsumerConfig{
+					Topic:   topic,
+					Handler: handler,
+				})
+				if err != nil {
+					log.Printf("failed to start kafka consumer for topic %s: %v", topic, err)
+					continue
+				}
+
+				go kc.Run(ctx, m.createKafkaContext())
+				log.Printf("Kafka consumer started for topic: %s", topic)
+			}
+		}()
+		return
 	}
 
+	// If already connected, start consumers directly
 	for topic, handler := range m.kafkaHandlers {
 		kc, err := NewKafkaConsumer(m.kafkaClient.dialer, m.kafkaConfig, ConsumerConfig{
 			Topic:   topic,
@@ -429,11 +453,9 @@ func (m *Microservice) Consume(topic string, handler KafkaConsumerHandler) {
 		panic("topic and handler must be provided for Kafka consumer")
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.isKafkaConfigured() || !m.isKafkaConnected() {
-		log.Printf("Kafka not configured or connected; skipping consumer for topic %s", topic)
+	// If Kafka is not configured, skip (user may not want to use Kafka)
+	if !m.isKafkaConfigured() {
+		log.Printf("Kafka not configured; skipping consumer for topic %s", topic)
 		return
 	}
 
@@ -441,11 +463,13 @@ func (m *Microservice) Consume(topic string, handler KafkaConsumerHandler) {
 		return
 	}
 
-	if m.kafkaConfig.AutoCreateTopics {
+	// Register handler even if not connected yet (lazy connection in Start())
+	m.kafkaHandlers[topic] = handler
+
+	// Only create topic if already connected
+	if m.kafkaClient != nil && m.kafkaConfig.AutoCreateTopics {
 		_ = m.kafkaClient.CreateTopic(topic, 1)
 	}
-
-	m.kafkaHandlers[topic] = handler
 
 	log.Printf("Kafka consumer registered for topic: %s (lazy start)", topic)
 }

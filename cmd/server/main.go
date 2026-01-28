@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -189,14 +190,14 @@ func main() {
 	// Register notification routes
 	notificationHandler.RegisterRoutes(app)
 
-	// app.Consume("test", func(ctx *kp.Ctx) {
+	app.Consume("test", func(ctx *kp.Ctx) {
 
-	// 	var msg map[string]any
-	// 	if err := ctx.Bind(&msg); err != nil {
-	// 		return
-	// 	}
-	// 	fmt.Printf("Received Kafka message on 'test' topic: %+v\n", msg)
-	// })
+		var msg map[string]any
+		if err := ctx.Bind(&msg); err != nil {
+			return
+		}
+		fmt.Printf("Received Kafka message on 'test' topic: %+v\n", msg)
+	})
 
 	// Register WebSocket route
 	app.GET("/ws", wsHandler.ServeWS)
