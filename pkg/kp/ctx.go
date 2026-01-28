@@ -26,6 +26,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/oschwald/geoip2-golang"
+	"github.com/segmentio/kafka-go"
 	"github.com/ua-parser/uap-go/uaparser"
 )
 
@@ -984,4 +985,107 @@ func setFormMap(ptr any, form map[string][]string) error {
 	}
 
 	return nil
+}
+
+func (c *Ctx) PublishWithConfig(topic string, value any, config kafka.WriterConfig, maskingData ...logger.MaskRule) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("failed to marshal value for kafka: %w", err)
+	}
+	msg := kafka.Message{
+		Topic: topic,
+		Time:  time.Now(),
+		Value: data,
+	}
+
+	c.Log.Info(logAction.PRODUCING("producing event: "+topic), map[string]any{
+		"topic": topic,
+		"time":  msg.Time,
+		"value": value,
+	}, maskingData...)
+
+	writer := kafka.NewWriter(config)
+	defer writer.Close()
+
+	// Retry logic with exponential backoff
+	maxRetries := 3
+	retryDelay := 100 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			c.Log.Info(logAction.APP_LOGIC("Kafka Retry"), map[string]any{
+				"attempt": attempt,
+				"delay":   retryDelay.String(),
+				"topic":   topic,
+			})
+			time.Sleep(retryDelay)
+			retryDelay *= 2 // Exponential backoff
+		}
+
+		err := writer.WriteMessages(c, msg)
+		if err == nil {
+			c.Log.Info(logAction.PRODUCED("event response from kafka :"+topic), map[string]any{
+				"attempt": attempt + 1,
+				"topic":   topic,
+				"status":  "ok",
+			})
+			return nil
+		}
+
+		lastErr = err
+		c.Log.Error(logAction.APP_LOGIC("Kafka"), fmt.Sprintf("Failed to send message (attempt %d/%d): %v", attempt+1, maxRetries+1, err))
+	}
+
+	return fmt.Errorf("failed to publish to kafka after %d attempts: %w", maxRetries+1, lastErr)
+}
+
+func (c *Ctx) Publisher(topic string, value any, maskingData ...logger.MaskRule) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("failed to marshal value for kafka: %w", err)
+	}
+	msg := kafka.Message{
+		Topic: topic,
+		Time:  time.Now(),
+		Value: data,
+	}
+
+	c.Log.Info(logAction.PRODUCING("producing event: "+topic), map[string]any{
+		"topic": topic,
+		"time":  msg.Time,
+		"value": value,
+	}, maskingData...)
+
+	// Retry logic with exponential backoff
+	maxRetries := 3
+	retryDelay := 100 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			c.Log.Info(logAction.APP_LOGIC("Kafka Retry"), map[string]any{
+				"attempt": attempt,
+				"delay":   retryDelay.String(),
+				"topic":   topic,
+			})
+			time.Sleep(retryDelay)
+			retryDelay *= 2 // Exponential backoff
+		}
+
+		err := c.KafkaWriters.WriteMessages(c, msg)
+		if err == nil {
+			c.Log.Info(logAction.PRODUCED("event response from kafka :"+topic), map[string]any{
+				"attempt": attempt + 1,
+				"topic":   topic,
+				"status":  "ok",
+			})
+			return nil
+		}
+
+		lastErr = err
+		c.Log.Error(logAction.APP_LOGIC("Kafka"), fmt.Sprintf("Failed to send message (attempt %d/%d): %v", attempt+1, maxRetries+1, err))
+	}
+
+	return fmt.Errorf("failed to publish to kafka after %d attempts: %w", maxRetries+1, lastErr)
 }
