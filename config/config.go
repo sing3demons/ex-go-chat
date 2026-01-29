@@ -33,6 +33,7 @@ type KafkaConfig struct {
 // ServerConfig holds server configuration
 type ServerConfig struct {
 	Name            string
+	Version         string
 	Port            string
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
@@ -70,6 +71,7 @@ func Load() *Config {
 	cfg := &Config{
 		Server: ServerConfig{
 			Name:            getEnv("SERVER_NAME", "Real-time Chat System"),
+			Version:         Version,
 			Port:            getEnv("SERVER_PORT", "8080"),
 			ReadTimeout:     getDurationEnv("SERVER_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout:    getDurationEnv("SERVER_WRITE_TIMEOUT", 15*time.Second),

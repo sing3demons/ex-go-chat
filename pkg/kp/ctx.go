@@ -79,6 +79,8 @@ type Ctx struct {
 
 type ICtx interface {
 	context.Context
+	Request() *http.Request
+	Response() http.ResponseWriter
 
 	SpanID() string
 	TraceID() string
@@ -119,6 +121,14 @@ func (c *Ctx) Deadline() (time.Time, bool) {
 }
 func (c *Ctx) Value(key any) any {
 	return c.Context().Value(key)
+}
+
+func (c *Ctx) Request() *http.Request {
+	return c.Req
+}
+
+func (c *Ctx) Response() http.ResponseWriter {
+	return c.Res
 }
 
 //
