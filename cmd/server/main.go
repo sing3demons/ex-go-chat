@@ -149,17 +149,17 @@ func main() {
 	wsHandler := websocket.NewHandler(hub, authService, roomService, presenceService, log)
 	log.Info("Handlers initialized")
 
-	loggerConfig := logger.LoggerConfig{
-		Summary: logger.LogOutputConfig{Path: "./logs/summary/", Console: true, File: true},
-		Detail:  logger.LogOutputConfig{Path: "./logs/detail/", Console: true, File: true},
-		Rotation: logger.RotationConfig{
-			MaxSize:    50 * 1024 * 1024, // 50MB
-			MaxAge:     7,                // 7 days
-			MaxBackups: 5,
-			Compress:   true,
-		},
-	}
-	app := kp.NewMicroservice(cfg, loggerConfig)
+	// loggerConfig := logger.LoggerConfig{
+	// 	Summary: logger.LogOutputConfig{Path: "./logs/summary/", Console: true, File: true},
+	// 	Detail:  logger.LogOutputConfig{Path: "./logs/detail/", Console: true, File: true},
+	// 	Rotation: logger.RotationConfig{
+	// 		MaxSize:    50 * 1024 * 1024, // 50MB
+	// 		MaxAge:     7,                // 7 days
+	// 		MaxBackups: 5,
+	// 		Compress:   true,
+	// 	},
+	// }
+	app := kp.NewMicroservice(cfg, log)
 	app.Use(middleware.Recovery)
 	app.Use(middleware.CORS)
 

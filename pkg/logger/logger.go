@@ -4,7 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 )
@@ -65,50 +66,49 @@ func StartAPI(r *http.Request, operation string) context.Context {
 
 // Logger provides logging functionality
 type Logger struct {
-	info  *log.Logger
-	error *log.Logger
-	debug *log.Logger
+	logger *slog.Logger
 }
 
 // New creates a new logger instance
 func New() *Logger {
-	return &Logger{
-		info:  log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
-		error: log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
-		debug: log.New(os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile),
-	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	return &Logger{logger: logger}
 }
 
 // Info logs an info message
-func (l *Logger) Info(v ...interface{}) {
-	l.info.Println(v...)
+func (l *Logger) Info(msg string, args ...any) {
+	l.logger.Info(msg, args...)
 }
 
 // Infof logs a formatted info message
-func (l *Logger) Infof(format string, v ...interface{}) {
-	l.info.Printf(format, v...)
+func (l *Logger) Infof(format string, v ...any) {
+	l.logger.Info(fmt.Sprintf(format, v...))
 }
 
 // Error logs an error message
-func (l *Logger) Error(v ...interface{}) {
-	l.error.Println(v...)
+func (l *Logger) Error(msg string, args ...any) {
+	l.logger.Error(msg, args...)
 }
 
 // Errorf logs a formatted error message
-func (l *Logger) Errorf(format string, v ...interface{}) {
-	l.error.Printf(format, v...)
+func (l *Logger) Errorf(format string, v ...any) {
+	l.logger.Error(fmt.Sprintf(format, v...))
 }
 
 // Debug logs a debug message
-func (l *Logger) Debug(v ...interface{}) {
-	l.debug.Println(v...)
+func (l *Logger) Debug(msg string, args ...any) {
+	l.logger.Debug(msg, args...)
 }
 
 // Debugf logs a formatted debug message
-func (l *Logger) Debugf(format string, v ...interface{}) {
-	l.debug.Printf(format, v...)
+func (l *Logger) Debugf(format string, v ...any) {
+	l.logger.Debug(fmt.Sprintf(format, v...))
 }
 
-func (l *Logger) Warnf(format string, v ...interface{}) {
-	l.info.Printf("WARN: "+format, v...)
+func (l *Logger) Warnf(format string, v ...any) {
+	l.logger.Warn(fmt.Sprintf(format, v...))
+}
+
+func (l *Logger) Warn(msg string, args ...any) {
+	l.logger.Warn(msg, args...)
 }

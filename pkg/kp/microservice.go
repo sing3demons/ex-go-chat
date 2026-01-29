@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -39,6 +38,7 @@ type KafkaConfig struct {
 
 type Microservice struct {
 	config        *config.Config
+	logger        *logger.Logger
 	mux           *http.ServeMux
 	middlewares   []Middleware
 	loggerConfig  logger.LoggerConfig
@@ -76,7 +76,8 @@ type IMicroservice interface {
 	// PublishJSON(topic string, key string, v any) error
 }
 
-func NewMicroservice(cfg *config.Config, loggerConfig logger.LoggerConfig) IMicroservice {
+func NewMicroservice(cfg *config.Config, log *logger.Logger) IMicroservice {
+	loggerConfig := logger.LoggerConfig{}
 	ms := &Microservice{
 		config:        cfg,
 		mux:           http.NewServeMux(),
@@ -84,6 +85,7 @@ func NewMicroservice(cfg *config.Config, loggerConfig logger.LoggerConfig) IMicr
 		kafkaHandlers: make(map[string]KafkaConsumerHandler),
 		// kafkaConsumers: make([]*KafkaConsumer, 0),
 		kafkaClient: nil,
+		logger:      log,
 	}
 
 	// Do NOT connect to Kafka here (lazy connection)
@@ -162,7 +164,7 @@ func (m *Microservice) ConnectKafka(cfg KafkaConfig) error {
 	m.kafkaClient = kc
 	m.mu.Unlock()
 
-	log.Printf("Kafka configured with brokers: %s", cfg.Brokers)
+	m.logger.Infof("Kafka configured with brokers: %s", cfg.Brokers)
 
 	return nil
 }
@@ -199,7 +201,7 @@ func (m *Microservice) Start() {
 
 	// Start HTTP Server in background
 	go func() {
-		log.Printf("starting server on %s", srv.Addr)
+		m.logger.Infof("starting server on %s", srv.Addr)
 		serverErrors <- srv.ListenAndServe()
 	}()
 
@@ -211,18 +213,18 @@ func (m *Microservice) Start() {
 	select {
 	case err := <-serverErrors:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("server error: %v", err)
+			m.logger.Errorf("server error: %v", err)
 		}
 	case <-quit:
-		log.Println("shutting down server...")
+		m.logger.Info("shutting down server...")
 
 		// Stop Kafka consumers first
 		kafkaCancel()
 
 		// Wait for all Kafka consumers to finish
-		log.Println("waiting for kafka consumers to shutdown...")
+		m.logger.Info("waiting for kafka consumers to shutdown...")
 		m.kafkaWg.Wait()
-		log.Println("all kafka consumers stopped")
+		m.logger.Info("all kafka consumers stopped")
 
 		if m.kafkaClient != nil {
 			m.kafkaClient.Close()
@@ -233,10 +235,10 @@ func (m *Microservice) Start() {
 		defer shutdownCancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("server forced to shutdown: %v", err)
+			m.logger.Errorf("server forced to shutdown: %v", err)
 		}
 
-		log.Println("server exited")
+		m.logger.Info("server exited")
 	}
 }
 
@@ -306,9 +308,9 @@ func (m *Microservice) isKafkaConfigured() bool {
 
 // startKafkaConsumers spins up all registered consumers with the given context
 func (m *Microservice) startKafkaConsumers(ctx context.Context) {
-	log.Printf("Starting Kafka consumers...")
+	m.logger.Info("Starting Kafka consumers...")
 	if m.kafkaConfig == nil || strings.TrimSpace(m.kafkaConfig.Brokers) == "" {
-		log.Printf("Kafka not configured; skipping consumer startup")
+		m.logger.Warn("Kafka not configured; skipping consumer startup")
 		return
 	}
 
@@ -317,7 +319,7 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 		// Connect to Kafka without blocking - only retry once on failure
 		go func() {
 			if err := m.ConnectKafka(*m.kafkaConfig); err != nil {
-				log.Printf("Failed to connect to Kafka: %v", err)
+				m.logger.Errorf("Failed to connect to Kafka: %v", err)
 				return
 			}
 
@@ -328,7 +330,7 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 					Handler: handler,
 				})
 				if err != nil {
-					log.Printf("failed to start kafka consumer for topic %s: %v", topic, err)
+					m.logger.Errorf("failed to start kafka consumer for topic %s: %v", topic, err)
 					continue
 				}
 
@@ -336,9 +338,9 @@ func (m *Microservice) startKafkaConsumers(ctx context.Context) {
 				go func(consumer *KafkaConsumer, t string) {
 					defer m.kafkaWg.Done()
 					consumer.Run(ctx, m.createKafkaContext())
-					log.Printf("Kafka consumer stopped for topic: %s", t)
+					m.logger.Infof("Kafka consumer stopped for topic: %s", t)
 				}(kc, topic)
-				log.Printf("Kafka consumer started for topic: %s", topic)
+				m.logger.Infof("Kafka consumer started for topic: %s", topic)
 			}
 		}()
 	}
@@ -449,7 +451,7 @@ func (m *Microservice) Consume(topic string, handler KafkaConsumerHandler) {
 
 	// If Kafka is not configured, skip (user may not want to use Kafka)
 	if !m.isKafkaConfigured() {
-		log.Printf("Kafka not configured; skipping consumer for topic %s", topic)
+		m.logger.Warnf("Kafka not configured; skipping consumer for topic %s", topic)
 		return
 	}
 
@@ -464,6 +466,4 @@ func (m *Microservice) Consume(topic string, handler KafkaConsumerHandler) {
 	if m.kafkaClient != nil && m.kafkaConfig.AutoCreateTopics {
 		_ = m.kafkaClient.CreateTopic(topic, 1)
 	}
-
-	log.Printf("Kafka consumer registered for topic: %s (lazy start)", topic)
 }

@@ -8,12 +8,13 @@ import (
 
 // Config holds all configuration for the application
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	Presence PresenceConfig
-	JWT      JWTConfig
-	Kafka    KafkaConfig
+	Server       ServerConfig
+	Database     DatabaseConfig
+	Redis        RedisConfig
+	Presence     PresenceConfig
+	JWT          JWTConfig
+	Kafka        KafkaConfig
+	LoggerConfig LoggerConfig
 }
 
 type KafkaConfig struct {
@@ -66,6 +67,23 @@ type JWTConfig struct {
 	Expiration time.Duration
 }
 
+type RotationConfig struct {
+	MaxSize    int64 // Maximum size in bytes before rotation (default: 100MB)
+	MaxAge     int   // Maximum number of days to retain old logs (default: 30)
+	MaxBackups int   // Maximum number of backup files to keep (default: 10)
+	Compress   bool  // Whether to compress rotated files (default: true)
+}
+type LogOutputConfig struct {
+	Path    string
+	Console bool
+	File    bool
+}
+type LoggerConfig struct {
+	Summary  LogOutputConfig
+	Detail   LogOutputConfig
+	Rotation RotationConfig
+}
+
 // Load loads configuration from environment variables with defaults
 func Load() *Config {
 	cfg := &Config{
@@ -105,6 +123,25 @@ func Load() *Config {
 			BatchSize:        getIntEnv("KAFKA_BATCH_SIZE", 100),
 			BatchBytes:       getIntEnv("KAFKA_BATCH_BYTES", 1048576), // 1 MB
 			BatchTimeout:     getIntEnv("KAFKA_BATCH_TIMEOUT_MS", 10), // in milliseconds
+		},
+		LoggerConfig: LoggerConfig{
+			Summary: LogOutputConfig{
+				Path:    getEnv("LOG_SUMMARY_PATH", "./logs/summary/"),
+				Console: getEnv("LOG_SUMMARY_CONSOLE", "true") == "true",
+				File:    getEnv("LOG_SUMMARY_FILE", "true") == "true",
+			},
+			Detail: LogOutputConfig{
+				Path:    getEnv("LOG_DETAIL_PATH", "./logs/detail/"),
+				Console: getEnv("LOG_DETAIL_CONSOLE", "true") == "true",
+				File:    getEnv("LOG_DETAIL_FILE", "true") == "true",
+			},
+			Rotation: RotationConfig{
+				// MaxSize:    50 * 1024 * 1024, // 50MB
+				MaxSize:   int64(getIntEnv("LOG_ROTATION_MAX_SIZE_MB", 100)) * 1024 * 1024, // in bytes
+				MaxAge:     7,                // 7 days
+				MaxBackups: getIntEnv("LOG_ROTATION_MAX_BACKUPS", 10),
+				Compress:   getEnv("LOG_ROTATION_COMPRESS", "true") == "true",
+			},
 		},
 	}
 
